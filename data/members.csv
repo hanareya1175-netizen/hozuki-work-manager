@@ -1,0 +1,7 @@
+﻿member_id,email,password,name,role,status,phone
+1,admin@example.com,admin,管理者,admin,有効,
+2,test1@example.com,test1,小泉 智海,member,有効,
+3,test2@example.com,test2,コイズミ サトミ,member,無効,
+4,test3@example.com,test3,川口 恵美子,member,有効,
+5,test4@example.com,test4,中島 君夫,member,有効,
+6,test5@example.com,test5,本橋 成男,member,有効,
