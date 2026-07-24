@@ -3,7 +3,7 @@ import streamlit as st
 import csvdb
 from common import (
     RECRUIT_STATUS_ACCEPTED, RECRUIT_STATUS_ADMIN, RECRUIT_STATUS_ASSIGNED, RECRUIT_STATUS_COMPLETED,
-    format_date, normalize_text, require_admin, show_header,
+    format_date, format_recruit_no, format_recruit_summary, normalize_text, require_admin, show_header,
 )
 
 def results_screen(*, role: str, mode: str) -> None:
@@ -45,7 +45,7 @@ def _create() -> None:
         "対象作業",
         ids,
         format_func=lambda x: next(
-            f"{format_date(r.get('date'))}｜{r.get('type')}｜{r.get('member')}"
+            f"{format_recruit_summary(r)}　｜　{r.get('member', '')}"
             for r in recruits if r.get("id") == x
         ),
     )
@@ -68,25 +68,22 @@ def _create() -> None:
         st.error("実績数量は0より大きい値を入力してください。")
         return
 
-    csvdb.append("results", {
-        "result_id": csvdb.next_id("results", "result_id"),
-        "recruit_id": rid,
-        "member_id": row.get("member_id", ""),
-        "member_name": row.get("member", ""),
-        "work_date": row.get("date", ""),
-        "work_type": row.get("type", ""),
-        "result_value": value,
-        "unit": unit,
-        "take_home_qty": take_home if row.get("type") == "収穫" else "",
-        "note": note.strip(),
-        "previous_recruit_status": row.get("status", ""),
-    })
-
-    all_recruits = csvdb.read("recruit")
-    for item in all_recruits:
-        if item.get("id") == rid:
-            item["status"] = RECRUIT_STATUS_COMPLETED
-    csvdb.write_all("recruit", all_recruits)
+    csvdb.register_result_and_complete(
+        recruit_id=rid,
+        result_row={
+            "recruit_id": rid,
+            "member_id": row.get("member_id", ""),
+            "member_name": row.get("member", ""),
+            "work_date": row.get("date", ""),
+            "work_type": row.get("type", ""),
+            "result_value": value,
+            "unit": unit,
+            "take_home_qty": take_home if row.get("type") == "収穫" else "",
+            "note": note.strip(),
+            "previous_recruit_status": row.get("status", ""),
+        },
+        completed_status=RECRUIT_STATUS_COMPLETED,
+    )
 
     st.success("実績を登録しました。")
     st.rerun()
@@ -106,8 +103,9 @@ def _member_label(member_key: str, rows: list[dict[str, str]]) -> str:
 
 def _result_summary(row: dict[str, str]) -> str:
     return (
-        f"{format_date(row.get('work_date'))}｜"
-        f"{normalize_text(row.get('work_type'))}｜"
+        f"{format_recruit_no(row.get('recruit_id'))}　"
+        f"{format_date(row.get('work_date'))}　"
+        f"【{normalize_text(row.get('work_type'))}】　"
         f"{normalize_text(row.get('member_name'))}"
     )
 
@@ -127,6 +125,7 @@ def _result_table(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     data = []
     for row in rows:
         data.append({
+            '募集番号': format_recruit_no(row.get('recruit_id')),
             '日付': format_date(row.get('work_date')),
             '作業': normalize_text(row.get('work_type')),
             '担当': normalize_text(row.get('member_name')),
@@ -203,7 +202,7 @@ def _edit() -> None:
         "編集する実績",
         ids,
         format_func=lambda x: next(
-            f"{x}：{r.get('work_date')}｜{r.get('work_type')}｜{r.get('member_name')}"
+            f"{format_recruit_no(r.get('recruit_id'))}　{format_date(r.get('work_date'))}　【{r.get('work_type', '')}】　{r.get('member_name', '')}"
             for r in rows if r.get("result_id") == x
         ),
         key="result_edit_select",

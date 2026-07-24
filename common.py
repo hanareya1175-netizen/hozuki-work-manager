@@ -5,7 +5,7 @@ import streamlit as st
 APP_NAME = "食用ほおずき作業管理システム"
 APP_SUBTITLE = "HozukiWorks"
 APP_ICON = "🟠"
-APP_VERSION = "Ver1.9.2"
+APP_VERSION = "Ver2.0.0 Build201"
 
 ROLE_ADMIN = "admin"
 ROLE_MEMBER = "member"
@@ -278,3 +278,35 @@ def format_date(value: object) -> str:
         return datetime.strptime(text, "%Y-%m-%d").strftime("%Y/%m/%d")
     except ValueError:
         return text
+
+
+def format_short_date(value: object) -> str:
+    """募集一覧用の日付を M/D 形式で返す。"""
+    if isinstance(value, datetime):
+        value = value.date()
+    if isinstance(value, date):
+        return f"{value.month}/{value.day}"
+    text = normalize_text(value)
+    try:
+        parsed = datetime.strptime(text, "%Y-%m-%d")
+        return f"{parsed.month}/{parsed.day}"
+    except ValueError:
+        return text
+
+
+def format_recruit_no(value: object) -> str:
+    text = normalize_text(value)
+    return f"No.{text}" if text else "No.-"
+
+
+def format_recruit_summary(row: dict[str, object]) -> str:
+    """募集表示を No.123　7/25　【収穫】　第3畝 の形に統一する。"""
+    location = normalize_text(row.get("detail")) or normalize_text(row.get("place"))
+    parts = [
+        format_recruit_no(row.get("id")),
+        format_short_date(row.get("date")),
+        f"【{normalize_text(row.get('type'))}】",
+    ]
+    if location:
+        parts.append(location)
+    return "　".join(parts)

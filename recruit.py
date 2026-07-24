@@ -8,7 +8,7 @@ from common import (
     MEMBER_STATUS_ACTIVE, PLACES, RECRUIT_STATUS_ACCEPTED,
     RECRUIT_STATUS_ADMIN, RECRUIT_STATUS_ASSIGNED, RECRUIT_STATUS_CANCELLED,
     RECRUIT_STATUS_COMPLETED, RECRUIT_STATUS_OPEN, ROLE_MEMBER,
-    WORK_TYPES, format_date, normalize_role, normalize_text,
+    WORK_TYPES, format_date, format_recruit_no, format_recruit_summary, normalize_role, normalize_text,
     require_admin, show_header,
 )
 
@@ -188,7 +188,7 @@ def _edit() -> None:
     recruit_id = st.selectbox(
         "編集する募集", ids,
         format_func=lambda rid: next(
-            f"{rid}：{_summary(row)}｜{row.get('status', '')}"
+            f"{_summary(row)}　｜　{row.get('status', '')}"
             for row in rows if row.get("id") == rid
         ), key="edit_recruit_select",
     )
@@ -248,7 +248,7 @@ def _duplicate(admin_name: str, admin_id: str) -> None:
     source_id = st.selectbox(
         "複製元の募集", [row.get("id", "") for row in rows],
         format_func=lambda rid: next(
-            f"{rid}：{_summary(row)}｜{row.get('status', '')}"
+            f"{_summary(row)}　｜　{row.get('status', '')}"
             for row in rows if row.get("id") == rid
         ), key="duplicate_source_select",
     )
@@ -342,18 +342,18 @@ def _detail(row: dict[str, str], *, show_status: bool = True) -> None:
     if row.get("member"):
         st.write(f"**担当：** {row.get('member')}")
     if show_status:
-        st.caption(f"募集番号：{row.get('id')}　状態：{row.get('status')}")
+        st.caption(f"{format_recruit_no(row.get('id'))}　状態：{row.get('status')}")
 
 
 def _summary(row: dict[str, str]) -> str:
-    return f"{format_date(row.get('date'))}｜{row.get('type', '')}｜{_display_place(row.get('place', ''))}"
+    return format_recruit_summary({**row, "place": _display_place(row.get("place", ""))})
 
 
 def _table_rows(rows: list[dict[str, str]], *, include_member: bool = True) -> list[dict[str, str]]:
     data = []
     for row in rows:
         item = {
-            "番号": row.get("id", ""), "日付": format_date(row.get("date")),
+            "募集番号": format_recruit_no(row.get("id")), "日付": format_date(row.get("date")),
             "作業": row.get("type", ""), "場所": _display_place(row.get("place", "")),
             "時間": _time_text(row), "内容": row.get("detail", ""), "状態": row.get("status", ""),
         }
