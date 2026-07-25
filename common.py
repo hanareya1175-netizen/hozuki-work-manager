@@ -1,11 +1,25 @@
 from __future__ import annotations
 from datetime import date, datetime
-import streamlit as st
+from pathlib import Path
 
-APP_NAME = "食用ほおずき作業管理システム"
+import streamlit as st
+from PIL import Image
+
+APP_NAME = "笹原ほおずき作業管理システム"
 APP_SUBTITLE = "HozukiWorks"
-APP_ICON = "🟠"
-APP_VERSION = "Ver2.0.0 Build201"
+APP_ICON = "🟠"  # 画像を表示できない場合の代替表示
+APP_VERSION = "Ver2.0.0 Build203"
+
+BASE_DIR = Path(__file__).resolve().parent
+APP_ICON_PATH = BASE_DIR / "assets" / "hozuki_icon.png"
+APP_LOGO_PATH = BASE_DIR / "assets" / "hozuki_logo.png"
+
+def load_app_icon() -> Image.Image | str:
+    """ブラウザタブ用アイコンを返す。画像がなければ絵文字を使用する。"""
+    try:
+        return Image.open(APP_ICON_PATH)
+    except Exception:
+        return APP_ICON
 
 ROLE_ADMIN = "admin"
 ROLE_MEMBER = "member"
@@ -38,7 +52,7 @@ def normalize_role(value: object) -> str:
 def set_page_config() -> None:
     st.set_page_config(
         page_title=f"{APP_NAME} {APP_VERSION}",
-        page_icon=APP_ICON,
+        page_icon=load_app_icon(),
         layout="wide",
         initial_sidebar_state="collapsed",
     )
@@ -48,6 +62,15 @@ def apply_mobile_css() -> None:
     st.markdown(
         """
         <style>
+        /* Streamlit標準ヘッダー（Deploy・三点メニュー）を全端末で隠す */
+        header[data-testid="stHeader"],
+        div[data-testid="stToolbar"],
+        div[data-testid="stDecoration"],
+        div[data-testid="stStatusWidget"] {
+            display: none !important;
+            height: 0 !important;
+        }
+
         /* 全画面共通 */
         .block-container {
             max-width: 1050px;
@@ -56,6 +79,18 @@ def apply_mobile_css() -> None:
         }
         h1 {
             line-height: 1.25 !important;
+            color: #2f6422;
+        }
+        .hozuki-brand-title {
+            margin: 0;
+            color: #2f6422;
+            font-size: 2rem;
+            font-weight: 800;
+            line-height: 1.25;
+        }
+        .hozuki-brand-subtitle {
+            margin-top: 0.2rem;
+            color: #6b4a2b;
         }
         div[data-testid="stButton"] > button,
         div[data-testid="stFormSubmitButton"] > button {
@@ -251,13 +286,37 @@ def apply_mobile_css() -> None:
         unsafe_allow_html=True,
     )
 
+def show_brand(*, compact: bool = False, show_version: bool = True) -> None:
+    """決定したロゴとシステム名を共通表示する。"""
+    logo_width = 118 if compact else 170
+    if APP_LOGO_PATH.exists():
+        left, right = st.columns([1, 4], vertical_alignment="center")
+        with left:
+            st.image(str(APP_LOGO_PATH), width=logo_width)
+        with right:
+            st.markdown(
+                f'<div class="hozuki-brand-title">{APP_NAME}</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f'<div class="hozuki-brand-subtitle">{APP_SUBTITLE}'
+                f'{"　" + APP_VERSION if show_version else ""}</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.title(f"{APP_ICON} {APP_NAME}")
+        if show_version:
+            st.caption(f"{APP_SUBTITLE}　{APP_VERSION}")
+
 def show_header(title: str, subtitle: str = "") -> None:
     st.title(title)
     if subtitle:
         st.caption(subtitle)
 
 def show_sidebar_user(name: str, role: str) -> None:
-    st.sidebar.markdown(f"### {APP_ICON} {APP_SUBTITLE}")
+    if APP_LOGO_PATH.exists():
+        st.sidebar.image(str(APP_LOGO_PATH), width=115)
+    st.sidebar.markdown(f"### {APP_NAME}")
     st.sidebar.write(f"**{name}**")
     st.sidebar.caption(ROLE_LABELS.get(normalize_role(role), role))
     st.sidebar.caption(APP_VERSION)

@@ -5,7 +5,7 @@ from common import (
     APP_ICON, APP_NAME, APP_SUBTITLE, APP_VERSION,
     RECRUIT_STATUS_ACCEPTED, RECRUIT_STATUS_ASSIGNED, RECRUIT_STATUS_ADMIN, RECRUIT_STATUS_OPEN,
     ROLE_ADMIN, ROLE_MEMBER, normalize_role, set_page_config,
-    show_header, show_sidebar_user,
+    show_brand, show_header, show_sidebar_user,
 )
 from login import current_user, is_logged_in, login_screen, logout_button
 from members import members_screen
@@ -26,7 +26,7 @@ def count_recruits(status: str) -> int:
     return sum(1 for x in csvdb.read("recruit") if x.get("status") == status)
 
 def admin_home(name: str) -> None:
-    show_header(f"{APP_ICON} {APP_NAME}", f"{APP_SUBTITLE} {APP_VERSION}")
+    show_brand()
     st.success(f"{name} さん、管理者としてログインしています。")
     a, b = st.columns(2)
     with a:
@@ -42,7 +42,7 @@ def admin_home(name: str) -> None:
         st.rerun()
 
 def member_home(name: str, member_id: str) -> None:
-    show_header(f"{APP_ICON} {APP_NAME}", APP_VERSION)
+    show_brand()
     st.success(f"{name} さん、ようこそ。")
     my_active = sum(
         1 for x in csvdb.read("recruit")

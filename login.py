@@ -2,8 +2,8 @@ from __future__ import annotations
 import streamlit as st
 import csvdb
 from common import (
-    APP_ICON, APP_NAME, APP_VERSION, MEMBER_STATUS_ACTIVE,
-    normalize_role, normalize_text,
+    APP_VERSION, MEMBER_STATUS_ACTIVE,
+    normalize_role, normalize_text, show_brand,
 )
 
 def initialize_session() -> None:
@@ -20,8 +20,8 @@ def current_user() -> dict[str, str]:
 
 def login_screen() -> None:
     initialize_session()
-    st.title(f"{APP_ICON} {APP_NAME}")
-    st.caption(f"{APP_VERSION}　ログイン")
+    show_brand()
+    st.markdown("### ログイン")
 
     with st.form("login_form"):
         email = st.text_input(
