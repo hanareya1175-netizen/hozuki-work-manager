@@ -1,0 +1,16 @@
+HozukiWorks Ver2.0.0 Build204
+
+変更内容
+- スマホのブランド表示を縦並びに変更
+- スマホのロゴを88pxへ小型化
+- スマホのタイトルを1行表示に調整
+- PC表示は従来の横並びを維持
+- Streamlit標準ヘッダー非表示を維持
+- 機能・データ処理は変更なし
+
+上書き対象
+- common.py
+- assets/hozuki_icon.png
+- assets/hozuki_logo.png
+
+旧 BUILD202_NOTES.txt / BUILD203_NOTES.txt は削除して構いません。

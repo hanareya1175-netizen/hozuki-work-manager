@@ -1,6 +1,7 @@
 from __future__ import annotations
 from datetime import date, datetime
 from pathlib import Path
+import base64
 
 import streamlit as st
 from PIL import Image
@@ -8,7 +9,7 @@ from PIL import Image
 APP_NAME = "笹原ほおずき作業管理システム"
 APP_SUBTITLE = "HozukiWorks"
 APP_ICON = "🟠"  # 画像を表示できない場合の代替表示
-APP_VERSION = "Ver2.0.0 Build203"
+APP_VERSION = "Ver2.0.0 Build204"
 
 BASE_DIR = Path(__file__).resolve().parent
 APP_ICON_PATH = BASE_DIR / "assets" / "hozuki_icon.png"
@@ -81,6 +82,21 @@ def apply_mobile_css() -> None:
             line-height: 1.25 !important;
             color: #2f6422;
         }
+        .hozuki-brand {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            margin: 0.1rem 0 1.7rem 0;
+        }
+        .hozuki-brand-logo {
+            display: block;
+            width: 170px;
+            height: auto;
+            flex: 0 0 auto;
+        }
+        .hozuki-brand-text {
+            min-width: 0;
+        }
         .hozuki-brand-title {
             margin: 0;
             color: #2f6422;
@@ -89,8 +105,12 @@ def apply_mobile_css() -> None:
             line-height: 1.25;
         }
         .hozuki-brand-subtitle {
-            margin-top: 0.2rem;
+            margin-top: 0.35rem;
             color: #6b4a2b;
+            font-size: 1rem;
+        }
+        .hozuki-brand-compact .hozuki-brand-logo {
+            width: 118px;
         }
         div[data-testid="stButton"] > button,
         div[data-testid="stFormSubmitButton"] > button {
@@ -179,6 +199,36 @@ def apply_mobile_css() -> None:
             }
             .block-container {
                 padding: 0.9rem 0.75rem 5rem !important;
+            }
+
+            /* ブランド表示はスマホでは縦並び・小型化 */
+            .hozuki-brand {
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important;
+                gap: 0.45rem !important;
+                margin: 0 0 1.25rem 0 !important;
+                text-align: center !important;
+            }
+            .hozuki-brand-logo,
+            .hozuki-brand-compact .hozuki-brand-logo {
+                width: 88px !important;
+                max-width: 26vw !important;
+                height: auto !important;
+            }
+            .hozuki-brand-text {
+                width: 100% !important;
+            }
+            .hozuki-brand-title {
+                font-size: clamp(1rem, 4.6vw, 1.22rem) !important;
+                line-height: 1.2 !important;
+                white-space: nowrap !important;
+                letter-spacing: -0.02em !important;
+            }
+            .hozuki-brand-subtitle {
+                margin-top: 0.25rem !important;
+                font-size: 0.88rem !important;
+                white-space: nowrap !important;
             }
             h1 {
                 font-size: 1.55rem !important;
@@ -286,23 +336,36 @@ def apply_mobile_css() -> None:
         unsafe_allow_html=True,
     )
 
+def _image_data_uri(path: Path) -> str:
+    """ロゴ画像をHTML埋め込み用のdata URIに変換する。"""
+    try:
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        return f"data:image/png;base64,{encoded}"
+    except Exception:
+        return ""
+
+
 def show_brand(*, compact: bool = False, show_version: bool = True) -> None:
-    """決定したロゴとシステム名を共通表示する。"""
-    logo_width = 118 if compact else 170
-    if APP_LOGO_PATH.exists():
-        left, right = st.columns([1, 4], vertical_alignment="center")
-        with left:
-            st.image(str(APP_LOGO_PATH), width=logo_width)
-        with right:
-            st.markdown(
-                f'<div class="hozuki-brand-title">{APP_NAME}</div>',
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                f'<div class="hozuki-brand-subtitle">{APP_SUBTITLE}'
-                f'{"　" + APP_VERSION if show_version else ""}</div>',
-                unsafe_allow_html=True,
-            )
+    """PCとスマホで崩れないレスポンシブなブランド表示。"""
+    logo_uri = _image_data_uri(APP_LOGO_PATH) if APP_LOGO_PATH.exists() else ""
+    version_html = (
+        f'<div class="hozuki-brand-subtitle">{APP_SUBTITLE}　{APP_VERSION}</div>'
+        if show_version
+        else ""
+    )
+
+    if logo_uri:
+        compact_class = " hozuki-brand-compact" if compact else ""
+        html = f"""
+        <div class="hozuki-brand{compact_class}">
+            <img class="hozuki-brand-logo" src="{logo_uri}" alt="笹原ほおずきロゴ">
+            <div class="hozuki-brand-text">
+                <div class="hozuki-brand-title">{APP_NAME}</div>
+                {version_html}
+            </div>
+        </div>
+        """
+        st.markdown(html, unsafe_allow_html=True)
     else:
         st.title(f"{APP_ICON} {APP_NAME}")
         if show_version:
