@@ -53,25 +53,48 @@ def apply_mobile_css() -> None:
     st.markdown(
         """
         <style>
-        /* Streamlit Community Cloud の上部ツールバーを全画面で非表示 */
+        /* Streamlit Community Cloud の上部バー（Deploy・三点メニュー）を非表示 */
         header[data-testid="stHeader"],
-        div[data-testid="stToolbar"],
-        div[data-testid="stDecoration"],
-        div[data-testid="stStatusWidget"],
-        div[data-testid="stAppDeployButton"],
-        button[data-testid="stBaseButton-header"],
+        [data-testid="stHeader"],
+        [data-testid="stToolbar"],
+        [data-testid="stDecoration"],
+        [data-testid="stStatusWidget"],
+        [data-testid="stAppDeployButton"],
+        [data-testid="stMainMenu"],
+        .stAppHeader,
+        .stDeployButton,
         #MainMenu,
         footer {
             display: none !important;
             visibility: hidden !important;
             height: 0 !important;
             min-height: 0 !important;
+            max-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+        }
+
+        /* ヘッダー非表示後に残る上端の空白を除去 */
+        html, body,
+        [data-testid="stAppViewContainer"],
+        [data-testid="stMain"],
+        .stAppViewContainer,
+        .stMain {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+        }
+        [data-testid="stAppViewContainer"] > .main,
+        [data-testid="stAppViewContainer"] > .stMain,
+        .stAppViewContainer > .main,
+        .stAppViewContainer > .stMain {
+            top: 0 !important;
         }
 
         /* 全画面共通 */
         .block-container {
             max-width: 1050px;
-            padding-top: 0.55rem;
+            padding-top: 0.35rem;
             padding-bottom: 3rem;
         }
         h1 {
