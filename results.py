@@ -3,7 +3,7 @@ import streamlit as st
 import csvdb
 from common import (
     RECRUIT_STATUS_ACCEPTED, RECRUIT_STATUS_ADMIN, RECRUIT_STATUS_ASSIGNED, RECRUIT_STATUS_COMPLETED,
-    format_date, format_recruit_no, format_recruit_summary, normalize_text, require_admin, show_header,
+    format_date, normalize_text, require_admin, show_header,
 )
 
 def results_screen(*, role: str, mode: str) -> None:
@@ -23,10 +23,15 @@ def _units(work_type: str) -> list[str]:
         return ["kg"]
     if work_type == "選別（パッキング）":
         return ["パック", "袋"]
+    if work_type == "冷凍処理":
+        return ["kg"]
     return ["回"]
 
 def _create() -> None:
     show_header("作業実績入力")
+    message = st.session_state.pop("result_create_message", "")
+    if message:
+        st.success(message)
     results = csvdb.read("results")
     done_ids = {x.get("recruit_id") for x in results}
     recruits = [
@@ -43,15 +48,22 @@ def _create() -> None:
     ids = [x.get("id", "") for x in recruits]
     rid = st.selectbox(
         "対象作業",
-        ids,
+        ids, index=None, placeholder="対象作業を選択してください",
         format_func=lambda x: next(
-            f"{format_recruit_summary(r)}　｜　{r.get('member', '')}"
+            f"No.{r.get('id')}｜{format_date(r.get('date'))}｜{r.get('type')}｜場所：{normalize_text(r.get('place')) or '未設定'}｜{r.get('member')}"
             for r in recruits if r.get("id") == x
         ),
     )
+    if not rid:
+        st.info("対象作業を選択すると入力欄が表示されます。")
+        return
     row = next(x for x in recruits if x.get("id") == rid)
 
-    with st.form("result_create"):
+    st.caption(
+        f"登録番号：No.{row.get('id', '')}　場所：{normalize_text(row.get('place')) or '未設定'}"
+    )
+
+    with st.form("result_create", enter_to_submit=False):
         value = st.number_input("実績数量", min_value=0.0, step=0.1)
         unit = st.selectbox("単位", _units(row.get("type", "")))
         take_home = (
@@ -68,24 +80,27 @@ def _create() -> None:
         st.error("実績数量は0より大きい値を入力してください。")
         return
 
-    csvdb.register_result_and_complete(
-        recruit_id=rid,
-        result_row={
-            "recruit_id": rid,
-            "member_id": row.get("member_id", ""),
-            "member_name": row.get("member", ""),
-            "work_date": row.get("date", ""),
-            "work_type": row.get("type", ""),
-            "result_value": value,
-            "unit": unit,
-            "take_home_qty": take_home if row.get("type") == "収穫" else "",
-            "note": note.strip(),
-            "previous_recruit_status": row.get("status", ""),
-        },
-        completed_status=RECRUIT_STATUS_COMPLETED,
-    )
+    csvdb.append("results", {
+        "result_id": csvdb.next_id("results", "result_id"),
+        "recruit_id": rid,
+        "member_id": row.get("member_id", ""),
+        "member_name": row.get("member", ""),
+        "work_date": row.get("date", ""),
+        "work_type": row.get("type", ""),
+        "result_value": value,
+        "unit": unit,
+        "take_home_qty": take_home if row.get("type") == "収穫" else "",
+        "note": note.strip(),
+        "previous_recruit_status": row.get("status", ""),
+    })
 
-    st.success("実績を登録しました。")
+    all_recruits = csvdb.read("recruit")
+    for item in all_recruits:
+        if item.get("id") == rid:
+            item["status"] = RECRUIT_STATUS_COMPLETED
+    csvdb.write_all("recruit", all_recruits)
+
+    st.session_state["result_create_message"] = "実績を登録しました。"
     st.rerun()
 
 def _member_key(row: dict[str, str]) -> str:
@@ -101,16 +116,27 @@ def _member_label(member_key: str, rows: list[dict[str, str]]) -> str:
     return name
 
 
-def _result_summary(row: dict[str, str]) -> str:
+def _recruit_lookup() -> dict[str, dict[str, str]]:
+    return {normalize_text(row.get("id")): row for row in csvdb.read("recruit")}
+
+
+def _result_summary(row: dict[str, str], recruit_lookup: dict[str, dict[str, str]] | None = None) -> str:
+    recruit_lookup = recruit_lookup or {}
+    recruit = recruit_lookup.get(normalize_text(row.get("recruit_id")), {})
+    place = normalize_text(recruit.get("place")) or "未設定"
     return (
-        f"{format_recruit_no(row.get('recruit_id'))}　"
-        f"{format_date(row.get('work_date'))}　"
-        f"【{normalize_text(row.get('work_type'))}】　"
+        f"No.{normalize_text(row.get('recruit_id'))}｜"
+        f"{format_date(row.get('work_date'))}｜"
+        f"{normalize_text(row.get('work_type'))}｜{place}｜"
         f"{normalize_text(row.get('member_name'))}"
     )
 
 
-def _result_detail(row: dict[str, str]) -> None:
+def _result_detail(row: dict[str, str], recruit_lookup: dict[str, dict[str, str]] | None = None) -> None:
+    recruit_lookup = recruit_lookup or {}
+    recruit = recruit_lookup.get(normalize_text(row.get("recruit_id")), {})
+    st.write(f"**No：** {normalize_text(row.get('recruit_id'))}")
+    st.write(f"**場所：** {normalize_text(recruit.get('place')) or '未設定'}")
     st.write(f"**作業日：** {format_date(row.get('work_date'))}")
     st.write(f"**作業区分：** {normalize_text(row.get('work_type'))}")
     st.write(f"**担当：** {normalize_text(row.get('member_name'))}")
@@ -121,13 +147,15 @@ def _result_detail(row: dict[str, str]) -> None:
         st.caption(f"備考：{normalize_text(row.get('note'))}")
 
 
-def _result_table(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+def _result_table(rows: list[dict[str, str]], recruit_lookup: dict[str, dict[str, str]]) -> list[dict[str, str]]:
     data = []
     for row in rows:
+        recruit = recruit_lookup.get(normalize_text(row.get("recruit_id")), {})
         data.append({
-            '募集番号': format_recruit_no(row.get('recruit_id')),
+            'No': normalize_text(row.get('recruit_id')),
             '日付': format_date(row.get('work_date')),
             '作業': normalize_text(row.get('work_type')),
+            '場所': normalize_text(recruit.get('place')) or '未設定',
             '担当': normalize_text(row.get('member_name')),
             '実績数量': normalize_text(row.get('result_value')),
             '単位': normalize_text(row.get('unit')),
@@ -150,12 +178,13 @@ def _list() -> None:
         selected_member_label=_member_label(selected_member,all_rows)
         rows=[row for row in all_rows if _member_key(row)==selected_member]
     st.caption(f"全 {len(rows)} 件" if display_mode=='全て' else f"{selected_member_label}：{len(rows)} 件")
+    recruit_lookup = _recruit_lookup()
     with st.container(key='desktop_only'):
-        st.dataframe(_result_table(rows),use_container_width=True,hide_index=True)
+        st.dataframe(_result_table(rows, recruit_lookup),use_container_width=True,hide_index=True)
     with st.container(key='mobile_only'):
         for row in rows:
-            with st.expander(_result_summary(row)):
-                _result_detail(row)
+            with st.expander(_result_summary(row, recruit_lookup)):
+                _result_detail(row, recruit_lookup)
 
 def _restore_recruit_after_delete(recruit_id: str, previous_status: str = "") -> None:
     recruits = csvdb.read("recruit")
@@ -200,13 +229,16 @@ def _edit() -> None:
     ids = [x.get("result_id", "") for x in rows]
     result_id = st.selectbox(
         "編集する実績",
-        ids,
+        ids, index=None, placeholder="実績を選択してください",
         format_func=lambda x: next(
-            f"{format_recruit_no(r.get('recruit_id'))}　{format_date(r.get('work_date'))}　【{r.get('work_type', '')}】　{r.get('member_name', '')}"
+            f"{x}：{r.get('work_date')}｜{r.get('work_type')}｜{r.get('member_name')}"
             for r in rows if r.get("result_id") == x
         ),
         key="result_edit_select",
     )
+    if not result_id:
+        st.info("編集する実績を選択してください。")
+        return
     row = next(x for x in rows if x.get("result_id") == result_id)
 
     units = _units(row.get("work_type", ""))
@@ -216,7 +248,7 @@ def _edit() -> None:
     if not current_unit:
         current_unit = units[0]
 
-    with st.form(f"result_edit_{result_id}"):
+    with st.form(f"result_edit_{result_id}", enter_to_submit=False):
         value = st.number_input(
             "実績数量", min_value=0.0,
             value=float(row.get("result_value") or 0), step=0.1,

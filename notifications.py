@@ -50,23 +50,18 @@ def _optional_webhook(message: str) -> tuple[bool, str]:
 
 
 def _send_batch() -> tuple[bool, str]:
-    recruits = csvdb.read("recruit")
-    targets = [r for r in recruits if r.get("status") == RECRUIT_STATUS_OPEN and r.get("notification_status", "未通知") == "未通知"]
-    if not targets:
+    result = csvdb.send_general_notification_batch(
+        open_status=RECRUIT_STATUS_OPEN,
+        active_statuses={"", MEMBER_STATUS_ACTIVE, "使用中"},
+        created_at=_now(),
+    )
+    if not result["sent"]:
         return False, "未通知の一般募集はありません。"
-    count = len(targets); message = f"新しい作業募集が{count}件あります。"
-    batch_id = csvdb.next_id("notification_batches", "batch_id")
-    members = _active_members()
-    for member in members:
-        _append(normalize_text(member.get("member_id")), normalize_text(member.get("name")), "一般募集", message, batch_id)
-    for row in recruits:
-        if row in targets:
-            row["notification_status"] = "通知済"
-            row["notification_batch_id"] = batch_id
-    csvdb.write_all("recruit", recruits)
-    csvdb.append("notification_batches", {"batch_id":batch_id,"recruit_count":str(count),"created_at":_now(),"status":"送信済"})
-    _, extra = _optional_webhook(message)
-    return True, f"一般募集{count}件を、まとめて1回通知しました。{extra}"
+
+    # PUSH_WEBHOOK_URL が設定されている場合だけ外部通知を呼ぶ。
+    # 未設定ならネットワーク待ちは発生しない。
+    _, extra = _optional_webhook(str(result["message"]))
+    return True, f"一般募集{result['recruit_count']}件を、まとめて1回通知しました。{extra}"
 
 
 
@@ -148,6 +143,29 @@ def mark_recruit_detail_viewed(member_id: str, member_name: str, recruit_id: str
     csvdb.write_all("recruit_views", views)
 
 
+def mark_individual_notifications_read(member_id: str, member_name: str) -> int:
+    """Mark all unread individual-work notifications for one member as read.
+
+    Returns the number of notifications updated.  The helper is called when the
+    member opens the assigned-work screen, so the home badge disappears without
+    requiring a separate confirmation button.
+    """
+    rows = csvdb.read("notifications")
+    now = _now()
+    updated = 0
+    for row in rows:
+        if (
+            not normalize_text(row.get("read_at"))
+            and normalize_text(row.get("kind")) == "個別依頼"
+            and _same_member(row, member_id, member_name)
+        ):
+            row["read_at"] = now
+            updated += 1
+    if updated:
+        csvdb.write_all("notifications", rows)
+    return updated
+
+
 def notification_screen(*, role: str) -> None:
     if not require_admin(role): return
     show_header("通知")
@@ -156,7 +174,10 @@ def notification_screen(*, role: str) -> None:
     st.metric("未通知の一般募集", pending)
     st.caption("一般募集を何件か登録してから、まとめて1回だけ通知します。通知内容は募集件数だけです。")
     if st.button("まとめて通知する", type="primary", use_container_width=True, disabled=pending == 0):
-        ok, msg = _send_batch(); (st.success if ok else st.info)(msg); st.rerun()
+        ok, msg = _send_batch()
+        (st.success if ok else st.info)(msg)
+        if ok:
+            st.caption("画面上の件数表示は、次に画面を開いたとき更新されます。")
     st.divider()
     st.subheader("通知履歴")
     batches = list(reversed(csvdb.read("notification_batches")))
@@ -191,16 +212,8 @@ def member_notification_panel(*, member_id: str, member_name: str) -> None:
 
     if individual_unread:
         st.warning(f"🔔 個別の作業依頼が{len(individual_unread)}件あります。")
-        if st.button("個別通知を確認済みにする", use_container_width=True, key="mark_individual_notifications_read"):
-            now = _now()
-            for row in rows:
-                if (
-                    not normalize_text(row.get("read_at"))
-                    and normalize_text(row.get("kind")) == "個別依頼"
-                    and _same_member(row, member_id, member_name)
-                ):
-                    row["read_at"] = now
-            csvdb.write_all("notifications", rows)
+        if st.button("個別通知を確認済みにする", use_container_width=True, key="mark_individual_notifications_read_button"):
+            mark_individual_notifications_read(member_id, member_name)
             st.rerun()
 
     if not new_count and not individual_unread:

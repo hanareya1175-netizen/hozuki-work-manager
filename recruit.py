@@ -2,13 +2,13 @@ from __future__ import annotations
 from datetime import date, datetime
 import streamlit as st
 import csvdb
-from notifications import create_individual_notification, new_recruit_ids_for_member, mark_recruit_detail_viewed
+from notifications import create_individual_notification, new_recruit_ids_for_member, mark_recruit_detail_viewed, mark_individual_notifications_read
 from master_data import active_names
 from common import (
     MEMBER_STATUS_ACTIVE, PLACES, RECRUIT_STATUS_ACCEPTED,
     RECRUIT_STATUS_ADMIN, RECRUIT_STATUS_ASSIGNED, RECRUIT_STATUS_CANCELLED,
     RECRUIT_STATUS_COMPLETED, RECRUIT_STATUS_OPEN, ROLE_MEMBER,
-    WORK_TYPES, format_date, format_recruit_no, format_recruit_summary, normalize_role, normalize_text,
+    WORK_TYPES, format_date, normalize_role, normalize_text,
     require_admin, show_header,
 )
 
@@ -127,10 +127,10 @@ def _create(admin_name: str, admin_id: str) -> None:
     elif register_type == "管理者作業":
         st.info(f"担当者：{admin_name}（管理者）")
 
-    with st.form("recruit_create"):
-        work_date = st.date_input("作業日", min_value=date.today(), key="create_work_date")
-        work_type = st.selectbox("作業区分", _worktypes(), key="create_work_type")
-        place = st.selectbox("場所", _places(), key="create_place")
+    with st.form("recruit_create", enter_to_submit=False):
+        work_date = st.date_input("作業日", value=None, min_value=date.today(), key="create_work_date")
+        work_type = st.selectbox("作業区分", _worktypes(), index=None, placeholder="選択してください", key="create_work_type")
+        place = st.selectbox("場所", _places(), index=None, placeholder="選択してください", key="create_place")
         detail = st.text_input("内容・畝番号など", key="create_detail")
         use_time = st.checkbox("時間を指定する", key="create_use_time")
         col1, col2 = st.columns(2)
@@ -140,11 +140,14 @@ def _create(admin_name: str, admin_id: str) -> None:
             end = st.time_input("終了時刻", key="create_end")
         continuous = st.checkbox(
             "登録後も入力内容を残して続けて登録する",
-            value=True, key="create_continuous",
+            value=False, key="create_continuous",
         )
         submitted = st.form_submit_button("登録", use_container_width=True)
 
     if not submitted:
+        return
+    if work_date is None or not work_type or not place:
+        st.error("作業日・作業区分・場所を入力してください。")
         return
     if use_time and end <= start:
         st.error("終了時刻は開始時刻より後にしてください。")
@@ -170,14 +173,20 @@ def _create(admin_name: str, admin_id: str) -> None:
         "指名依頼": f"{assigned_name}さんへの指名依頼を登録しました。",
         "管理者作業": "管理者作業を登録しました。",
     }
-    if continuous:
-        st.session_state["recruit_create_message"] = messages[register_type] + " 続けて登録できます。"
-        st.rerun()
-    st.success(messages[register_type])
+    st.session_state["recruit_create_message"] = messages[register_type] + (" 続けて登録できます。" if continuous else "")
+    if not continuous:
+        for key in (
+            "recruit_register_type", "assigned_member_select", "create_work_date",
+            "create_work_type", "create_place", "create_detail", "create_use_time",
+            "create_start", "create_end", "create_continuous",
+        ):
+            st.session_state.pop(key, None)
+    st.rerun()
 
 
-def _edit() -> None:
-    show_header("募集編集")
+def _edit(recruit_id: str | None = None, *, embedded: bool = False) -> None:
+    if not embedded:
+        show_header("募集編集")
     rows = csvdb.read("recruit")
     if not rows:
         st.info("募集は登録されていません。")
@@ -185,13 +194,16 @@ def _edit() -> None:
 
     rows.sort(key=lambda x: (x.get("date", ""), int(x.get("id") or 0)))
     ids = [row.get("id", "") for row in rows]
-    recruit_id = st.selectbox(
-        "編集する募集", ids,
-        format_func=lambda rid: next(
-            f"{_summary(row)}　｜　{row.get('status', '')}"
-            for row in rows if row.get("id") == rid
-        ), key="edit_recruit_select",
-    )
+    if recruit_id is None:
+        recruit_id = st.selectbox(
+            "編集する募集", ids, index=None, placeholder="募集を選択してください",
+            format_func=lambda rid: next(
+                f"{rid}：{_summary(row)}｜{row.get('status', '')}"
+                for row in rows if row.get("id") == rid
+            ), key="edit_recruit_select",
+        )
+        if not recruit_id:
+            return
     row = next(item for item in rows if item.get("id") == recruit_id)
     if row.get("status") == RECRUIT_STATUS_COMPLETED:
         st.info("完了済み募集を編集すると、実績一覧側の作業日・作業区分・担当者は自動変更されません。")
@@ -206,7 +218,7 @@ def _edit() -> None:
         places.append(current_place)
     use_time_default = bool(normalize_text(row.get("start")))
 
-    with st.form(f"recruit_edit_{recruit_id}"):
+    with st.form(f"recruit_edit_{recruit_id}", enter_to_submit=False):
         work_date = st.date_input("作業日", value=_safe_date(row.get("date")))
         work_type = st.selectbox("作業区分", worktypes, index=worktypes.index(current_type))
         place = st.selectbox("場所", places, index=places.index(current_place))
@@ -248,7 +260,7 @@ def _duplicate(admin_name: str, admin_id: str) -> None:
     source_id = st.selectbox(
         "複製元の募集", [row.get("id", "") for row in rows],
         format_func=lambda rid: next(
-            f"{_summary(row)}　｜　{row.get('status', '')}"
+            f"{rid}：{_summary(row)}｜{row.get('status', '')}"
             for row in rows if row.get("id") == rid
         ), key="duplicate_source_select",
     )
@@ -342,18 +354,18 @@ def _detail(row: dict[str, str], *, show_status: bool = True) -> None:
     if row.get("member"):
         st.write(f"**担当：** {row.get('member')}")
     if show_status:
-        st.caption(f"{format_recruit_no(row.get('id'))}　状態：{row.get('status')}")
+        st.caption(f"募集番号：{row.get('id')}　状態：{row.get('status')}")
 
 
 def _summary(row: dict[str, str]) -> str:
-    return format_recruit_summary({**row, "place": _display_place(row.get("place", ""))})
+    return f"No.{row.get('id', '')}｜{format_date(row.get('date'))}｜{row.get('type', '')}｜場所：{_display_place(row.get('place', ''))}"
 
 
 def _table_rows(rows: list[dict[str, str]], *, include_member: bool = True) -> list[dict[str, str]]:
     data = []
     for row in rows:
         item = {
-            "募集番号": format_recruit_no(row.get("id")), "日付": format_date(row.get("date")),
+            "番号": row.get("id", ""), "日付": format_date(row.get("date")),
             "作業": row.get("type", ""), "場所": _display_place(row.get("place", "")),
             "時間": _time_text(row), "内容": row.get("detail", ""), "状態": row.get("status", ""),
         }
@@ -374,7 +386,7 @@ def _cancel(recruit_id: str) -> None:
 
 
 def _admin_list() -> None:
-    show_header("募集一覧・取消")
+    show_header("募集一覧・編集・取消")
     all_rows = sorted(csvdb.read("recruit"), key=lambda x: (x.get("date", ""), int(x.get("id") or 0)))
     if not all_rows:
         st.info("募集は登録されていません。")
@@ -390,23 +402,38 @@ def _admin_list() -> None:
 
     with st.container(key="desktop_only"):
         st.dataframe(_table_rows(rows), use_container_width=True, hide_index=True)
-        cancellable = [r for r in rows if r.get("status") in ACTIVE_STATUSES]
-        if cancellable:
-            rid = st.selectbox(
-                "取消する募集", [r.get("id", "") for r in cancellable],
-                format_func=lambda x: next(_summary(r) for r in cancellable if r.get("id") == x),
-                key="desktop_cancel_select",
-            )
-            if st.button("選択した募集を取消", key="desktop_cancel_button"):
-                _cancel(rid)
+        selected_id = st.selectbox(
+            "操作する募集", [r.get("id", "") for r in rows],
+            index=None, placeholder="募集を選択してください",
+            format_func=lambda x: next(_summary(r) for r in rows if r.get("id") == x),
+            key="desktop_admin_recruit_select",
+        )
+        if selected_id:
+            action = st.radio("操作", ["編集", "取消"], horizontal=True, key="desktop_admin_recruit_action")
+            if action == "編集":
+                st.divider()
+                _edit(selected_id, embedded=True)
+            else:
+                target = next(r for r in rows if r.get("id") == selected_id)
+                if target.get("status") in ACTIVE_STATUSES:
+                    if st.button("選択した募集を取消", key="desktop_cancel_button", use_container_width=True):
+                        _cancel(selected_id)
+                else:
+                    st.info("この募集は取消できる状態ではありません。")
 
     with st.container(key="mobile_only"):
         for row in rows:
             with st.expander(_summary(row)):
                 _detail(row)
-                if row.get("status") in ACTIVE_STATUSES:
-                    if st.button("募集を取消", key=f"mobile_cancel_{row.get('id')}", use_container_width=True):
-                        _cancel(row.get("id", ""))
+                action = st.radio("操作", ["表示のみ", "編集", "取消"], horizontal=True, key=f"mobile_action_{row.get('id')}")
+                if action == "編集":
+                    _edit(row.get("id", ""), embedded=True)
+                elif action == "取消":
+                    if row.get("status") in ACTIVE_STATUSES:
+                        if st.button("募集を取消", key=f"mobile_cancel_{row.get('id')}", use_container_width=True):
+                            _cancel(row.get("id", ""))
+                    else:
+                        st.info("この募集は取消できる状態ではありません。")
 
 
 def _accept(recruit_id: str, member_name: str, member_id: str) -> None:
@@ -532,12 +559,13 @@ def _my_table_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     for row in rows:
         result = _result_for_recruit(row.get("id", ""))
         value = f"{result.get('result_value', '')} {result.get('unit', '')}" if result else ""
-        data.append({"日付": format_date(row.get("date")), "作業": row.get("type", ""), "場所": _display_place(row.get("place", "")), "時間": _time_text(row), "状態": row.get("status", ""), "実績": value})
+        data.append({"No": row.get("id", ""), "日付": format_date(row.get("date")), "作業": row.get("type", ""), "場所": _display_place(row.get("place", "")), "時間": _time_text(row), "状態": row.get("status", ""), "実績": value})
     return data
 
 
 def _my_list(member_name: str, member_id: str) -> None:
     show_header("自分の引受け作業")
+    mark_individual_notifications_read(member_id, member_name)
     all_rows = [x for x in csvdb.read("recruit") if (x.get("member_id") == member_id or x.get("member") == member_name) and x.get("status") in {RECRUIT_STATUS_ACCEPTED, RECRUIT_STATUS_ASSIGNED, RECRUIT_STATUS_ADMIN, RECRUIT_STATUS_COMPLETED}]
     all_rows.sort(key=lambda x: (x.get("date", ""), int(x.get("id") or 0)))
     group = st.radio("表示する作業", ["引受け中", "完了"], horizontal=True, key="member_my_recruit_filter")

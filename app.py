@@ -5,7 +5,7 @@ from common import (
     APP_ICON, APP_NAME, APP_SUBTITLE, APP_VERSION,
     RECRUIT_STATUS_ACCEPTED, RECRUIT_STATUS_ASSIGNED, RECRUIT_STATUS_ADMIN, RECRUIT_STATUS_OPEN,
     ROLE_ADMIN, ROLE_MEMBER, normalize_role, set_page_config,
-    show_brand, show_header, show_sidebar_user,
+    show_header, show_sidebar_user,
 )
 from login import current_user, is_logged_in, login_screen, logout_button
 from members import members_screen
@@ -16,24 +16,26 @@ from notifications import notification_screen, member_notification_panel
 from data_admin import data_admin_screen
 
 ADMIN_MENU = [
-    "ホーム", "募集登録", "募集編集", "募集複製", "募集一覧・取消",
+    "ホーム", "募集登録", "募集一覧・編集・取消",
     "設定", "通知", "データ管理",
     "作業実績入力", "作業実績一覧", "作業実績編集",
 ]
-MEMBER_MENU = ["募集中", "引受け作業", "ホーム"]
+MEMBER_MENU = ["ホーム", "募集中", "引受け作業"]
 
-def count_recruits(status: str) -> int:
-    return sum(1 for x in csvdb.read("recruit") if x.get("status") == status)
+def count_recruits(status: str, rows: list[dict[str, str]] | None = None) -> int:
+    rows = rows if rows is not None else csvdb.read("recruit")
+    return sum(1 for x in rows if x.get("status") == status)
 
 def admin_home(name: str) -> None:
-    show_brand()
+    show_header(APP_NAME)
     st.success(f"{name} さん、管理者としてログインしています。")
+    recruits = csvdb.read("recruit")
     a, b = st.columns(2)
     with a:
-        st.metric("募集中", count_recruits(RECRUIT_STATUS_OPEN))
+        st.metric("募集中", count_recruits(RECRUIT_STATUS_OPEN, recruits))
         st.metric("会員数", len(csvdb.read("members")))
     with b:
-        st.metric("担当決定", count_recruits(RECRUIT_STATUS_ACCEPTED) + count_recruits(RECRUIT_STATUS_ASSIGNED) + count_recruits(RECRUIT_STATUS_ADMIN))
+        st.metric("担当決定", count_recruits(RECRUIT_STATUS_ACCEPTED, recruits) + count_recruits(RECRUIT_STATUS_ASSIGNED, recruits) + count_recruits(RECRUIT_STATUS_ADMIN, recruits))
         st.metric("実績数", len(csvdb.read("results")))
 
     st.divider()
@@ -42,16 +44,17 @@ def admin_home(name: str) -> None:
         st.rerun()
 
 def member_home(name: str, member_id: str) -> None:
-    show_brand()
+    show_header(APP_NAME)
     st.success(f"{name} さん、ようこそ。")
+    recruits = csvdb.read("recruit")
     my_active = sum(
-        1 for x in csvdb.read("recruit")
+        1 for x in recruits
         if (x.get("member_id") == member_id or x.get("member") == name)
         and x.get("status") in {RECRUIT_STATUS_ACCEPTED, RECRUIT_STATUS_ASSIGNED, RECRUIT_STATUS_ADMIN}
     )
     a, b = st.columns(2)
     with a:
-        st.metric("募集中", count_recruits(RECRUIT_STATUS_OPEN))
+        st.metric("募集中", count_recruits(RECRUIT_STATUS_OPEN, recruits))
     with b:
         st.metric("引受け中", my_active)
     member_notification_panel(member_id=member_id, member_name=name)
@@ -107,11 +110,7 @@ def main() -> None:
             admin_home(name)
         elif menu == "募集登録":
             recruit_screen(role=role, member_name=name, member_id=member_id, mode="create")
-        elif menu == "募集編集":
-            recruit_screen(role=role, member_name=name, member_id=member_id, mode="edit")
-        elif menu == "募集複製":
-            recruit_screen(role=role, member_name=name, member_id=member_id, mode="duplicate")
-        elif menu == "募集一覧・取消":
+        elif menu == "募集一覧・編集・取消":
             recruit_screen(role=role, member_name=name, member_id=member_id, mode="admin_list")
         elif menu == "設定":
             settings_screen(role=role)

@@ -1,26 +1,11 @@
 from __future__ import annotations
 from datetime import date, datetime
-from pathlib import Path
-import base64
-
 import streamlit as st
-from PIL import Image
 
-APP_NAME = "笹原ほおずき作業管理システム"
+APP_NAME = "食用ほおずき作業管理システム"
 APP_SUBTITLE = "HozukiWorks"
-APP_ICON = "🟠"  # 画像を表示できない場合の代替表示
-APP_VERSION = "Ver2.0.0 Build204"
-
-BASE_DIR = Path(__file__).resolve().parent
-APP_ICON_PATH = BASE_DIR / "assets" / "hozuki_icon.png"
-APP_LOGO_PATH = BASE_DIR / "assets" / "hozuki_logo.png"
-
-def load_app_icon() -> Image.Image | str:
-    """ブラウザタブ用アイコンを返す。画像がなければ絵文字を使用する。"""
-    try:
-        return Image.open(APP_ICON_PATH)
-    except Exception:
-        return APP_ICON
+APP_ICON = "assets/app_icon.png"
+APP_VERSION = "Ver2.0.0 Build206"
 
 ROLE_ADMIN = "admin"
 ROLE_MEMBER = "member"
@@ -51,9 +36,14 @@ def normalize_role(value: object) -> str:
     return role
 
 def set_page_config() -> None:
+    from pathlib import Path
+    from PIL import Image
+
+    icon_path = Path(APP_ICON)
+    page_icon = Image.open(icon_path) if icon_path.exists() else "🍊"
     st.set_page_config(
         page_title=f"{APP_NAME} {APP_VERSION}",
-        page_icon=load_app_icon(),
+        page_icon=page_icon,
         layout="wide",
         initial_sidebar_state="collapsed",
     )
@@ -63,54 +53,29 @@ def apply_mobile_css() -> None:
     st.markdown(
         """
         <style>
-        /* Streamlit標準ヘッダー（Deploy・三点メニュー）を全端末で隠す */
+        /* Streamlit Community Cloud の上部ツールバーを全画面で非表示 */
         header[data-testid="stHeader"],
         div[data-testid="stToolbar"],
         div[data-testid="stDecoration"],
-        div[data-testid="stStatusWidget"] {
+        div[data-testid="stStatusWidget"],
+        div[data-testid="stAppDeployButton"],
+        button[data-testid="stBaseButton-header"],
+        #MainMenu,
+        footer {
             display: none !important;
+            visibility: hidden !important;
             height: 0 !important;
+            min-height: 0 !important;
         }
 
         /* 全画面共通 */
         .block-container {
             max-width: 1050px;
-            padding-top: 1.1rem;
+            padding-top: 0.55rem;
             padding-bottom: 3rem;
         }
         h1 {
             line-height: 1.25 !important;
-            color: #2f6422;
-        }
-        .hozuki-brand {
-            display: flex;
-            align-items: center;
-            gap: 1.5rem;
-            margin: 0.1rem 0 1.7rem 0;
-        }
-        .hozuki-brand-logo {
-            display: block;
-            width: 170px;
-            height: auto;
-            flex: 0 0 auto;
-        }
-        .hozuki-brand-text {
-            min-width: 0;
-        }
-        .hozuki-brand-title {
-            margin: 0;
-            color: #2f6422;
-            font-size: 2rem;
-            font-weight: 800;
-            line-height: 1.25;
-        }
-        .hozuki-brand-subtitle {
-            margin-top: 0.35rem;
-            color: #6b4a2b;
-            font-size: 1rem;
-        }
-        .hozuki-brand-compact .hozuki-brand-logo {
-            width: 118px;
         }
         div[data-testid="stButton"] > button,
         div[data-testid="stFormSubmitButton"] > button {
@@ -131,6 +96,54 @@ def apply_mobile_css() -> None:
         }
         div[data-testid="stAlert"] {
             border-radius: 0.75rem;
+        }
+
+
+        /* HozukiWorks 共通ヘッダー */
+        .hozuki-app-header {
+            display: flex;
+            align-items: center;
+            gap: 2.4rem;
+            width: 100%;
+            margin: 0.2rem 0 1.3rem 0;
+        }
+        .hozuki-logo-wrap {
+            flex: 0 0 200px;
+            width: 200px;
+        }
+        .hozuki-app-logo {
+            display: block;
+            width: 200px;
+            height: auto;
+            max-width: 100%;
+        }
+        .hozuki-logo-fallback {
+            font-size: 5rem;
+            line-height: 1;
+        }
+        .hozuki-header-copy {
+            min-width: 0;
+            flex: 1 1 auto;
+        }
+        .hozuki-main-title {
+            color: #27320f;
+            font-size: clamp(2rem, 3vw, 3.15rem);
+            font-weight: 800;
+            line-height: 1.18;
+            overflow-wrap: anywhere;
+        }
+        .hozuki-brand-name {
+            margin-top: 0.8rem;
+            color: #6d4318;
+            font-size: 1.2rem;
+            font-weight: 600;
+            line-height: 1.35;
+        }
+        .hozuki-version {
+            margin-top: 0.18rem;
+            color: #6b7280;
+            font-size: 1rem;
+            line-height: 1.35;
         }
 
         /* PC・スマホで一覧表示を切り替える */
@@ -180,6 +193,35 @@ def apply_mobile_css() -> None:
 
         /* スマートフォン */
         @media (max-width: 700px) {
+
+            .hozuki-app-header {
+                align-items: center;
+                gap: 0.85rem;
+                margin: 0 0 0.9rem 0;
+            }
+            .hozuki-logo-wrap {
+                flex: 0 0 92px;
+                width: 92px;
+            }
+            .hozuki-app-logo {
+                width: 92px;
+            }
+            .hozuki-logo-fallback {
+                font-size: 3rem;
+            }
+            .hozuki-main-title {
+                font-size: 1.42rem;
+                line-height: 1.25;
+            }
+            .hozuki-brand-name {
+                margin-top: 0.38rem;
+                font-size: 0.98rem;
+            }
+            .hozuki-version {
+                margin-top: 0.08rem;
+                font-size: 0.86rem;
+            }
+
             .st-key-desktop_only {
                 display: none !important;
             }
@@ -187,48 +229,8 @@ def apply_mobile_css() -> None:
                 display: block !important;
             }
 
-            /* Streamlit上部ヘッダーと三点メニューを完全に隠す */
-            header[data-testid="stHeader"] {
-                display: none !important;
-                height: 0 !important;
-            }
-            div[data-testid="stToolbar"],
-            div[data-testid="stDecoration"],
-            div[data-testid="stStatusWidget"] {
-                display: none !important;
-            }
             .block-container {
                 padding: 0.9rem 0.75rem 5rem !important;
-            }
-
-            /* ブランド表示はスマホでは縦並び・小型化 */
-            .hozuki-brand {
-                display: flex !important;
-                flex-direction: column !important;
-                align-items: center !important;
-                gap: 0.45rem !important;
-                margin: 0 0 1.25rem 0 !important;
-                text-align: center !important;
-            }
-            .hozuki-brand-logo,
-            .hozuki-brand-compact .hozuki-brand-logo {
-                width: 88px !important;
-                max-width: 26vw !important;
-                height: auto !important;
-            }
-            .hozuki-brand-text {
-                width: 100% !important;
-            }
-            .hozuki-brand-title {
-                font-size: clamp(1rem, 4.6vw, 1.22rem) !important;
-                line-height: 1.2 !important;
-                white-space: nowrap !important;
-                letter-spacing: -0.02em !important;
-            }
-            .hozuki-brand-subtitle {
-                margin-top: 0.25rem !important;
-                font-size: 0.88rem !important;
-                white-space: nowrap !important;
             }
             h1 {
                 font-size: 1.55rem !important;
@@ -336,49 +338,56 @@ def apply_mobile_css() -> None:
         unsafe_allow_html=True,
     )
 
-def _image_data_uri(path: Path) -> str:
-    """ロゴ画像をHTML埋め込み用のdata URIに変換する。"""
-    try:
-        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-        return f"data:image/png;base64,{encoded}"
-    except Exception:
-        return ""
+def show_header(title: str = APP_NAME, subtitle: str = "") -> None:
+    """共通ヘッダーを表示する。
 
+    アプリのホーム／ログインでは正式名称を主タイトルとし、
+    HozukiWorks とバージョンを別行表示する。各機能画面では
+    画面名を主タイトルとして表示する。
+    """
+    import base64
+    from pathlib import Path
 
-def show_brand(*, compact: bool = False, show_version: bool = True) -> None:
-    """PCとスマホで崩れないレスポンシブなブランド表示。"""
-    logo_uri = _image_data_uri(APP_LOGO_PATH) if APP_LOGO_PATH.exists() else ""
-    version_html = (
-        f'<div class="hozuki-brand-subtitle">{APP_SUBTITLE}　{APP_VERSION}</div>'
-        if show_version
-        else ""
+    icon_path = Path(APP_ICON)
+    icon_html = "<div class='hozuki-logo-fallback'>🍊</div>"
+    if icon_path.exists():
+        mime = "image/png" if icon_path.suffix.lower() == ".png" else "image/jpeg"
+        encoded = base64.b64encode(icon_path.read_bytes()).decode("ascii")
+        icon_html = (
+            f"<img class='hozuki-app-logo' "
+            f"src='data:{mime};base64,{encoded}' alt='HozukiWorks logo'>"
+        )
+
+    is_app_header = title == APP_NAME
+    if is_app_header:
+        detail = subtitle or APP_SUBTITLE
+        # 呼出側に旧形式の連結文字列が残っていても、必ず三段に分ける。
+        login_label = "ログイン" if "ログイン" in detail else ""
+        meta_html = (
+            f"<div class='hozuki-brand-name'>{APP_SUBTITLE}</div>"
+            f"<div class='hozuki-version'>{APP_VERSION}"
+            f"{'　' + login_label if login_label else ''}</div>"
+        )
+    else:
+        meta_html = (
+            f"<div class='hozuki-brand-name'>{APP_SUBTITLE}</div>"
+            f"<div class='hozuki-version'>{APP_VERSION}</div>"
+        )
+
+    st.markdown(
+        f"""
+        <div class="hozuki-app-header">
+          <div class="hozuki-logo-wrap">{icon_html}</div>
+          <div class="hozuki-header-copy">
+            <div class="hozuki-main-title">{title}</div>
+            {meta_html}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    if logo_uri:
-        compact_class = " hozuki-brand-compact" if compact else ""
-        html = f"""
-        <div class="hozuki-brand{compact_class}">
-            <img class="hozuki-brand-logo" src="{logo_uri}" alt="笹原ほおずきロゴ">
-            <div class="hozuki-brand-text">
-                <div class="hozuki-brand-title">{APP_NAME}</div>
-                {version_html}
-            </div>
-        </div>
-        """
-        st.markdown(html, unsafe_allow_html=True)
-    else:
-        st.title(f"{APP_ICON} {APP_NAME}")
-        if show_version:
-            st.caption(f"{APP_SUBTITLE}　{APP_VERSION}")
-
-def show_header(title: str, subtitle: str = "") -> None:
-    st.title(title)
-    if subtitle:
-        st.caption(subtitle)
-
 def show_sidebar_user(name: str, role: str) -> None:
-    if APP_LOGO_PATH.exists():
-        st.sidebar.image(str(APP_LOGO_PATH), width=115)
     st.sidebar.markdown(f"### {APP_NAME}")
     st.sidebar.write(f"**{name}**")
     st.sidebar.caption(ROLE_LABELS.get(normalize_role(role), role))
@@ -400,35 +409,3 @@ def format_date(value: object) -> str:
         return datetime.strptime(text, "%Y-%m-%d").strftime("%Y/%m/%d")
     except ValueError:
         return text
-
-
-def format_short_date(value: object) -> str:
-    """募集一覧用の日付を M/D 形式で返す。"""
-    if isinstance(value, datetime):
-        value = value.date()
-    if isinstance(value, date):
-        return f"{value.month}/{value.day}"
-    text = normalize_text(value)
-    try:
-        parsed = datetime.strptime(text, "%Y-%m-%d")
-        return f"{parsed.month}/{parsed.day}"
-    except ValueError:
-        return text
-
-
-def format_recruit_no(value: object) -> str:
-    text = normalize_text(value)
-    return f"No.{text}" if text else "No.-"
-
-
-def format_recruit_summary(row: dict[str, object]) -> str:
-    """募集表示を No.123　7/25　【収穫】　第3畝 の形に統一する。"""
-    location = normalize_text(row.get("detail")) or normalize_text(row.get("place"))
-    parts = [
-        format_recruit_no(row.get("id")),
-        format_short_date(row.get("date")),
-        f"【{normalize_text(row.get('type'))}】",
-    ]
-    if location:
-        parts.append(location)
-    return "　".join(parts)
