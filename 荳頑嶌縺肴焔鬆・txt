@@ -1,0 +1,13 @@
+Build211 差し替え手順
+
+1. このZIPをすべて展開します。
+2. 中の5ファイルを GitHub\hozuki-work-manager 直下へ上書きします。
+3. GitHub DesktopのChangesに次の5件が出ることを確認します。
+   common.py
+   recruit.py
+   notifications.py
+   requirements.txt
+   CHANGELOG_Build211.md
+4. Summary: Build211 画面遷移高速化
+5. Commit to main → Push origin
+6. Streamlit Community Cloudで Manage app → Reboot app

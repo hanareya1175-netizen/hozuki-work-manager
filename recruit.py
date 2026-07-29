@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import date, datetime
 import streamlit as st
 import csvdb
-from notifications import create_individual_notification, new_recruit_ids_for_member, mark_recruit_detail_viewed, mark_individual_notifications_read
+from notifications import create_individual_notification, new_recruit_ids_for_member, viewed_recruit_ids_for_member, mark_recruit_detail_viewed, mark_individual_notifications_read
 from master_data import active_names
 from common import (
     MEMBER_STATUS_ACTIVE, PLACES, RECRUIT_STATUS_ACCEPTED,
@@ -452,13 +452,17 @@ def _accept(recruit_id: str, member_name: str, member_id: str) -> None:
     st.rerun()
 
 
+def _new_state_key(member_id: str, member_name: str) -> str:
+    return f"new_read_ids:{normalize_text(member_id) or normalize_text(member_name).casefold()}"
+
+
 def _toggle_mobile_recruit_detail(
     member_id: str,
     member_name: str,
     recruit_id: str,
     batch_id: str,
 ) -> None:
-    """Toggle one detail and bind viewed state to the recruit ID itself."""
+    """Toggle one detail; use session state immediately, then persist one read."""
     recruit_id = normalize_text(recruit_id)
     current_id = normalize_text(st.session_state.get("mobile_recruit_detail_id"))
 
@@ -466,15 +470,60 @@ def _toggle_mobile_recruit_detail(
         st.session_state["mobile_recruit_detail_id"] = ""
         return
 
-    # Update the current browser session first.  The next render therefore
-    # removes NEW from this exact number even before a remote DB read returns.
-    viewed_now = set(st.session_state.get("viewed_recruit_ids_session", []))
-    viewed_now.add(recruit_id)
-    st.session_state["viewed_recruit_ids_session"] = sorted(viewed_now)
+    state_key = _new_state_key(member_id, member_name)
+    viewed = {normalize_text(rid) for rid in st.session_state.get(state_key, [])}
+    first_view = recruit_id not in viewed
+    viewed.add(recruit_id)
+    st.session_state[state_key] = sorted(viewed)
     st.session_state["mobile_recruit_detail_id"] = recruit_id
 
-    # Persist with a single insert; no whole-table rewrite and no recruit reread.
-    mark_recruit_detail_viewed(member_id, member_name, recruit_id, batch_id)
+    # Only the first open writes one small row. Subsequent opens are session-only.
+    if first_view:
+        mark_recruit_detail_viewed(member_id, member_name, recruit_id, batch_id)
+
+
+_FRAGMENT = getattr(st, "fragment", lambda func: func)
+
+
+@_FRAGMENT
+def _mobile_open_list_fragment(
+    rows: list[dict[str, str]],
+    member_name: str,
+    member_id: str,
+) -> None:
+    """Render only the smartphone list so a detail click does not rerun the whole app."""
+    state_key = _new_state_key(member_id, member_name)
+    viewed_ids = {normalize_text(rid) for rid in st.session_state.get(state_key, [])}
+    new_ids = new_recruit_ids_for_member(
+        member_id,
+        member_name,
+        recruits=rows,
+        viewed_ids=viewed_ids,
+    )
+    selected_id = normalize_text(st.session_state.get("mobile_recruit_detail_id"))
+
+    for row in rows:
+        row_id = normalize_text(row.get("id"))
+        if row_id in new_ids:
+            st.markdown('<div class="hozuki-new-badge">NEW</div>', unsafe_allow_html=True)
+        st.button(
+            _summary(row),
+            key=f"mobile_detail_{row_id}",
+            use_container_width=True,
+            on_click=_toggle_mobile_recruit_detail,
+            args=(
+                member_id,
+                member_name,
+                row_id,
+                normalize_text(row.get("notification_batch_id")),
+            ),
+        )
+
+        if selected_id == row_id:
+            with st.container(border=True):
+                _detail(row, show_status=False)
+                if st.button("引受け", key=f"mobile_accept_{row_id}", use_container_width=True):
+                    _accept(row_id, member_name, member_id)
 
 
 def _open_list(member_name: str, member_id: str) -> None:
@@ -487,25 +536,26 @@ def _open_list(member_name: str, member_id: str) -> None:
         if x.get("status") == RECRUIT_STATUS_OPEN
         and x.get("date", "") >= date.today().isoformat()
     ]
-
-    # Always keep one stable chronological order.  NEW affects only the label,
-    # never row position; therefore it cannot appear to jump to another number.
     rows.sort(key=lambda x: (x.get("date", ""), int(x.get("id") or 0)))
-
-    persisted_new_ids = {
-        normalize_text(rid)
-        for rid in new_recruit_ids_for_member(member_id, member_name)
-    }
-    viewed_this_session = {
-        normalize_text(rid)
-        for rid in st.session_state.get("viewed_recruit_ids_session", [])
-    }
-    new_ids = persisted_new_ids - viewed_this_session
-    selected_id = normalize_text(st.session_state.get("mobile_recruit_detail_id"))
 
     if not rows:
         st.info("現在募集中の作業はありません。")
         return
+
+    # Fetch persisted read IDs only once per login session. Detail clicks use
+    # this session copy and rerun only the mobile fragment.
+    state_key = _new_state_key(member_id, member_name)
+    if state_key not in st.session_state:
+        st.session_state[state_key] = sorted(
+            viewed_recruit_ids_for_member(member_id, member_name)
+        )
+    viewed_ids = {normalize_text(rid) for rid in st.session_state.get(state_key, [])}
+    new_ids = new_recruit_ids_for_member(
+        member_id,
+        member_name,
+        recruits=rows,
+        viewed_ids=viewed_ids,
+    )
 
     new_rows = [r for r in rows if normalize_text(r.get("id")) in new_ids]
     other_rows = [r for r in rows if normalize_text(r.get("id")) not in new_ids]
@@ -528,28 +578,7 @@ def _open_list(member_name: str, member_id: str) -> None:
             _accept(rid, member_name, member_id)
 
     with st.container(key="mobile_only"):
-        for row in rows:
-            row_id = normalize_text(row.get("id"))
-            is_new = row_id in new_ids
-            if is_new:
-                st.markdown('<div class="hozuki-new-badge">NEW</div>', unsafe_allow_html=True)
-            st.button(
-                _summary(row),
-                key=f"mobile_detail_{row_id}",
-                use_container_width=True,
-                on_click=_toggle_mobile_recruit_detail,
-                args=(
-                    member_id, member_name, row_id,
-                    normalize_text(row.get("notification_batch_id")),
-                ),
-            )
-
-            if selected_id == row_id:
-                with st.container(border=True):
-                    _detail(row, show_status=False)
-                    if st.button("引受け", key=f"mobile_accept_{row_id}", use_container_width=True):
-                        _accept(row_id, member_name, member_id)
-
+        _mobile_open_list_fragment(rows, member_name, member_id)
 
 def _result_for_recruit(recruit_id: str):
     return next((x for x in csvdb.read("results") if x.get("recruit_id") == recruit_id), None)

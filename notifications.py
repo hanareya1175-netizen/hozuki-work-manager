@@ -90,17 +90,28 @@ def _member_key(member_id: str, member_name: str) -> str:
     return f"name:{normalize_text(member_name).casefold()}"
 
 
-def new_recruit_ids_for_member(member_id: str, member_name: str) -> set[str]:
-    """Return NEW recruit IDs from the Build210 read-state model."""
-    viewed = csvdb.read_recruit_read_ids(
+def viewed_recruit_ids_for_member(member_id: str, member_name: str) -> set[str]:
+    """Return persisted read IDs for one member with one focused DB query."""
+    return csvdb.read_recruit_read_ids(
         _member_key(member_id, member_name),
         normalize_text(member_id),
         normalize_text(member_name),
     )
+
+
+def new_recruit_ids_for_member(
+    member_id: str,
+    member_name: str,
+    recruits: list[dict[str, str]] | None = None,
+    viewed_ids: set[str] | None = None,
+) -> set[str]:
+    """Return NEW recruit IDs without re-reading data already loaded by the screen."""
+    rows = recruits if recruits is not None else csvdb.read("recruit")
+    viewed = viewed_ids if viewed_ids is not None else viewed_recruit_ids_for_member(member_id, member_name)
     today = date.today().isoformat()
     return {
         normalize_text(row.get("id"))
-        for row in csvdb.read("recruit")
+        for row in rows
         if normalize_text(row.get("id"))
         and normalize_text(row.get("notification_batch_id"))
         and normalize_text(row.get("status")) == RECRUIT_STATUS_OPEN
