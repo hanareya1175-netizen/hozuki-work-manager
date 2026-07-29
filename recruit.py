@@ -456,27 +456,25 @@ def _toggle_mobile_recruit_detail(
     member_id: str,
     member_name: str,
     recruit_id: str,
-    row_order: list[str],
+    batch_id: str,
 ) -> None:
-    """Open/close one recruit detail and persist its NEW state by recruit ID.
-
-    NEW is never tracked by row position.  The viewed record is written before
-    Streamlit redraws the page, so the same recruit loses NEW immediately and
-    no other recruit can inherit the marker when row heights change.
-    """
+    """Toggle one detail and bind viewed state to the recruit ID itself."""
     recruit_id = normalize_text(recruit_id)
     current_id = normalize_text(st.session_state.get("mobile_recruit_detail_id"))
 
     if current_id == recruit_id:
         st.session_state["mobile_recruit_detail_id"] = ""
-        st.session_state.pop("mobile_recruit_order", None)
         return
 
-    # mark_recruit_detail_viewed is idempotent. Calling it unconditionally is
-    # both safer and faster than recalculating the whole NEW set in callback.
-    mark_recruit_detail_viewed(member_id, member_name, recruit_id)
+    # Update the current browser session first.  The next render therefore
+    # removes NEW from this exact number even before a remote DB read returns.
+    viewed_now = set(st.session_state.get("viewed_recruit_ids_session", []))
+    viewed_now.add(recruit_id)
+    st.session_state["viewed_recruit_ids_session"] = sorted(viewed_now)
     st.session_state["mobile_recruit_detail_id"] = recruit_id
-    st.session_state["mobile_recruit_order"] = [normalize_text(rid) for rid in row_order]
+
+    # Persist with a single insert; no whole-table rewrite and no recruit reread.
+    mark_recruit_detail_viewed(member_id, member_name, recruit_id, batch_id)
 
 
 def _open_list(member_name: str, member_id: str) -> None:
@@ -489,24 +487,21 @@ def _open_list(member_name: str, member_id: str) -> None:
         if x.get("status") == RECRUIT_STATUS_OPEN
         and x.get("date", "") >= date.today().isoformat()
     ]
-    new_ids = {normalize_text(rid) for rid in new_recruit_ids_for_member(member_id, member_name)}
 
+    # Always keep one stable chronological order.  NEW affects only the label,
+    # never row position; therefore it cannot appear to jump to another number.
+    rows.sort(key=lambda x: (x.get("date", ""), int(x.get("id") or 0)))
+
+    persisted_new_ids = {
+        normalize_text(rid)
+        for rid in new_recruit_ids_for_member(member_id, member_name)
+    }
+    viewed_this_session = {
+        normalize_text(rid)
+        for rid in st.session_state.get("viewed_recruit_ids_session", [])
+    }
+    new_ids = persisted_new_ids - viewed_this_session
     selected_id = normalize_text(st.session_state.get("mobile_recruit_detail_id"))
-    frozen_order = st.session_state.get("mobile_recruit_order", []) if selected_id else []
-
-    # Only the display order is frozen while details are open. NEW status is
-    # always recalculated from recruit_views, keyed by the recruit's own ID.
-    if frozen_order:
-        order_index = {normalize_text(rid): index for index, rid in enumerate(frozen_order)}
-        rows.sort(key=lambda x: (
-            order_index.get(normalize_text(x.get("id")), len(order_index)),
-            x.get("date", ""), int(x.get("id") or 0),
-        ))
-    else:
-        rows.sort(key=lambda x: (
-            0 if normalize_text(x.get("id")) in new_ids else 1,
-            x.get("date", ""), int(x.get("id") or 0),
-        ))
 
     if not rows:
         st.info("現在募集中の作業はありません。")
@@ -533,20 +528,19 @@ def _open_list(member_name: str, member_id: str) -> None:
             _accept(rid, member_name, member_id)
 
     with st.container(key="mobile_only"):
-        row_order = [normalize_text(r.get("id")) for r in rows]
         for row in rows:
             row_id = normalize_text(row.get("id"))
             is_new = row_id in new_ids
-
-            # NEW and its recruit summary are one widget.  They therefore cannot
-            # become visually detached when another row expands on a smartphone.
             label = (("NEW　" if is_new else "") + _summary(row))
             st.button(
                 label,
                 key=f"mobile_detail_{row_id}",
                 use_container_width=True,
                 on_click=_toggle_mobile_recruit_detail,
-                args=(member_id, member_name, row_id, row_order),
+                args=(
+                    member_id, member_name, row_id,
+                    normalize_text(row.get("notification_batch_id")),
+                ),
             )
 
             if selected_id == row_id:
@@ -554,6 +548,7 @@ def _open_list(member_name: str, member_id: str) -> None:
                     _detail(row, show_status=False)
                     if st.button("引受け", key=f"mobile_accept_{row_id}", use_container_width=True):
                         _accept(row_id, member_name, member_id)
+
 
 def _result_for_recruit(recruit_id: str):
     return next((x for x in csvdb.read("results") if x.get("recruit_id") == recruit_id), None)

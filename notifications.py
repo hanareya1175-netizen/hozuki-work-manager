@@ -110,37 +110,30 @@ def new_recruit_ids_for_member(member_id: str, member_name: str) -> set[str]:
     return result
 
 
-def mark_recruit_detail_viewed(member_id: str, member_name: str, recruit_id: str) -> None:
-    """Record the one fact that drives NEW state: this member opened this detail."""
-    recruit_id = normalize_text(recruit_id)
-    if not recruit_id:
-        return
-    target = next(
-        (r for r in csvdb.read("recruit") if normalize_text(r.get("id")) == recruit_id),
-        None,
-    )
-    if not target:
-        return
-    batch_id = normalize_text(target.get("notification_batch_id"))
-    if not batch_id:
-        return
+def mark_recruit_detail_viewed(
+    member_id: str,
+    member_name: str,
+    recruit_id: str,
+    batch_id: str,
+) -> None:
+    """Persist one viewed recruit with one short database insert.
 
-    views = csvdb.read("recruit_views")
-    already = any(
-        _same_member(r, member_id, member_name)
-        and normalize_text(r.get("recruit_id")) == recruit_id
-        for r in views
-    )
-    if already:
+    The caller already has the recruit row, so this function does not reread
+    the recruit table.  That removes two remote database round trips from a
+    smartphone tap.
+    """
+    recruit_id = normalize_text(recruit_id)
+    batch_id = normalize_text(batch_id)
+    if not recruit_id or not batch_id:
         return
-    views.append({
-        "member_id": member_id,
-        "member_name": member_name,
+    csvdb.append_recruit_view_if_missing({
+        "member_id": normalize_text(member_id),
+        "member_name": normalize_text(member_name),
         "recruit_id": recruit_id,
         "batch_id": batch_id,
         "seen_at": _now(),
+        "last_seen_batch_id": batch_id,
     })
-    csvdb.write_all("recruit_views", views)
 
 
 def mark_individual_notifications_read(member_id: str, member_name: str) -> int:

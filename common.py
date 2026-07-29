@@ -5,7 +5,7 @@ import streamlit as st
 APP_NAME = "食用ほおずき作業管理システム"
 APP_SUBTITLE = "HozukiWorks"
 APP_ICON = "assets/app_icon.png"
-APP_VERSION = "Ver2.0.0 Build208"
+APP_VERSION = "Ver2.0.0 Build209"
 
 ROLE_ADMIN = "admin"
 ROLE_MEMBER = "member"

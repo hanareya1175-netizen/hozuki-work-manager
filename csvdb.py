@@ -251,6 +251,72 @@ def append(name: str, row: dict[str, Any]) -> None:
     write_all(name, rows)
 
 
+def append_recruit_view_if_missing(row: dict[str, Any]) -> bool:
+    """Append one recruit-view record only when the member/recruit pair is absent.
+
+    PostgreSQL uses a single short transaction instead of reading and rewriting
+    the whole recruit_views collection.  This keeps smartphone detail opening
+    responsive even when the database is remote.
+    """
+    initialize()
+    clean = {str(k): "" if v is None else str(v) for k, v in row.items()}
+    member_id = clean.get("member_id", "").strip()
+    member_name = clean.get("member_name", "").strip()
+    recruit_id = clean.get("recruit_id", "").strip()
+    if not recruit_id or (not member_id and not member_name):
+        return False
+
+    if using_postgres():
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(20260726)")
+            cur.execute(
+                """
+                SELECT 1
+                  FROM hozuki_records
+                 WHERE collection='recruit_views'
+                   AND data->>'recruit_id'=%s
+                   AND (
+                        (%s <> '' AND data->>'member_id'=%s)
+                        OR (%s <> '' AND data->>'member_name'=%s)
+                   )
+                 LIMIT 1
+                """,
+                (recruit_id, member_id, member_id, member_name, member_name),
+            )
+            if cur.fetchone() is not None:
+                conn.commit()
+                return False
+            cur.execute(
+                "SELECT COALESCE(MAX(position), 0) + 1 FROM hozuki_records WHERE collection='recruit_views'"
+            )
+            position = int(cur.fetchone()[0])
+            cur.execute(
+                """
+                INSERT INTO hozuki_records(collection, record_key, position, data)
+                VALUES('recruit_views', %s, %s, %s::jsonb)
+                """,
+                (f"view:{member_id or member_name}:{recruit_id}", position, json.dumps(clean, ensure_ascii=False)),
+            )
+            conn.commit()
+        _clear_read_cache()
+        return True
+
+    rows = read("recruit_views")
+    exists = any(
+        str(r.get("recruit_id", "")).strip() == recruit_id
+        and (
+            (member_id and str(r.get("member_id", "")).strip() == member_id)
+            or (member_name and str(r.get("member_name", "")).strip() == member_name)
+        )
+        for r in rows
+    )
+    if exists:
+        return False
+    rows.append(clean)
+    write_all("recruit_views", rows)
+    return True
+
+
 def next_id(name: str, field: str) -> str:
     values: list[int] = []
     for row in read(name):
