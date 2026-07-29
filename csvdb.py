@@ -23,6 +23,7 @@ _DEFAULT_FIELDS = {
     "notifications": ["notification_id", "kind", "member_id", "member_name", "message", "created_at", "read_at", "batch_id"],
     "notification_batches": ["batch_id", "recruit_count", "created_at", "status"],
     "recruit_views": ["member_id", "member_name", "recruit_id", "batch_id", "seen_at", "last_seen_batch_id"],
+    "recruit_reads": ["member_key", "member_id", "member_name", "recruit_id", "read_at"],
 }
 
 _MIGRATION_KEY = "initial_csv_import_v2"
@@ -249,6 +250,99 @@ def append(name: str, row: dict[str, Any]) -> None:
     rows = read(name)
     rows.append(row)
     write_all(name, rows)
+
+
+def read_recruit_read_ids(member_key: str, member_id: str = "", member_name: str = "") -> set[str]:
+    """Read only one member's NEW-read IDs.
+
+    Build210 uses a dedicated deterministic member/recruit key.  Legacy
+    recruit_views are included so previously opened jobs do not become NEW
+    again after the migration.
+    """
+    initialize()
+    member_key = str(member_key or "").strip()
+    member_id = str(member_id or "").strip()
+    member_name = str(member_name or "").strip()
+    if not member_key:
+        return set()
+
+    if using_postgres():
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT data->>'recruit_id'
+                  FROM hozuki_records
+                 WHERE (
+                        collection='recruit_reads'
+                        AND data->>'member_key'=%s
+                       )
+                    OR (
+                        collection='recruit_views'
+                        AND (
+                             (%s <> '' AND data->>'member_id'=%s)
+                             OR (%s <> '' AND data->>'member_name'=%s)
+                        )
+                       )
+                """,
+                (member_key, member_id, member_id, member_name, member_name),
+            )
+            return {str(row[0]).strip() for row in cur.fetchall() if row[0]}
+
+    result = {
+        str(row.get("recruit_id", "")).strip()
+        for row in read("recruit_reads")
+        if str(row.get("member_key", "")).strip() == member_key
+    }
+    result.update(
+        str(row.get("recruit_id", "")).strip()
+        for row in read("recruit_views")
+        if (
+            (member_id and str(row.get("member_id", "")).strip() == member_id)
+            or (member_name and str(row.get("member_name", "")).strip() == member_name)
+        )
+    )
+    result.discard("")
+    return result
+
+
+def mark_recruit_read(row: dict[str, Any]) -> None:
+    """Persist one member/recruit read state with one idempotent UPSERT."""
+    initialize()
+    clean = {str(k): "" if v is None else str(v) for k, v in row.items()}
+    member_key = clean.get("member_key", "").strip()
+    recruit_id = clean.get("recruit_id", "").strip()
+    if not member_key or not recruit_id:
+        return
+    record_key = f"read:{member_key}:{recruit_id}"
+
+    if using_postgres():
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO hozuki_records(collection, record_key, position, data)
+                VALUES('recruit_reads', %s, 0, %s::jsonb)
+                ON CONFLICT (collection, record_key)
+                DO UPDATE SET data=EXCLUDED.data, updated_at=NOW()
+                """,
+                (record_key, json.dumps(clean, ensure_ascii=False)),
+            )
+            conn.commit()
+        _clear_read_cache()
+        return
+
+    rows = read("recruit_reads")
+    replaced = False
+    for existing in rows:
+        if (
+            str(existing.get("member_key", "")).strip() == member_key
+            and str(existing.get("recruit_id", "")).strip() == recruit_id
+        ):
+            existing.update(clean)
+            replaced = True
+            break
+    if not replaced:
+        rows.append(clean)
+    write_all("recruit_reads", rows)
 
 
 def append_recruit_view_if_missing(row: dict[str, Any]) -> bool:

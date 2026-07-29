@@ -83,31 +83,30 @@ def _same_member(row: dict[str, str], member_id: str, member_name: str) -> bool:
     )
 
 
-def new_recruit_ids_for_member(member_id: str, member_name: str) -> set[str]:
-    """Return the single source of truth for general-recruit NEW state.
+def _member_key(member_id: str, member_name: str) -> str:
+    member_id = normalize_text(member_id)
+    if member_id:
+        return f"id:{member_id}"
+    return f"name:{normalize_text(member_name).casefold()}"
 
-    A recruit is NEW for a member when it was included in a notification batch,
-    is still open and current, and that member has not opened its detail yet.
-    Home messages and recruit-list NEW markers both use this function directly.
-    """
-    viewed = {
-        normalize_text(row.get("recruit_id"))
-        for row in csvdb.read("recruit_views")
-        if _same_member(row, member_id, member_name)
-    }
+
+def new_recruit_ids_for_member(member_id: str, member_name: str) -> set[str]:
+    """Return NEW recruit IDs from the Build210 read-state model."""
+    viewed = csvdb.read_recruit_read_ids(
+        _member_key(member_id, member_name),
+        normalize_text(member_id),
+        normalize_text(member_name),
+    )
     today = date.today().isoformat()
-    result: set[str] = set()
-    for row in csvdb.read("recruit"):
-        recruit_id = normalize_text(row.get("id"))
-        if (
-            recruit_id
-            and normalize_text(row.get("notification_batch_id"))
-            and normalize_text(row.get("status")) == RECRUIT_STATUS_OPEN
-            and normalize_text(row.get("date")) >= today
-            and recruit_id not in viewed
-        ):
-            result.add(recruit_id)
-    return result
+    return {
+        normalize_text(row.get("id"))
+        for row in csvdb.read("recruit")
+        if normalize_text(row.get("id"))
+        and normalize_text(row.get("notification_batch_id"))
+        and normalize_text(row.get("status")) == RECRUIT_STATUS_OPEN
+        and normalize_text(row.get("date")) >= today
+        and normalize_text(row.get("id")) not in viewed
+    }
 
 
 def mark_recruit_detail_viewed(
@@ -116,25 +115,17 @@ def mark_recruit_detail_viewed(
     recruit_id: str,
     batch_id: str,
 ) -> None:
-    """Persist one viewed recruit with one short database insert.
-
-    The caller already has the recruit row, so this function does not reread
-    the recruit table.  That removes two remote database round trips from a
-    smartphone tap.
-    """
+    """Mark exactly one recruit read with a deterministic one-query UPSERT."""
     recruit_id = normalize_text(recruit_id)
-    batch_id = normalize_text(batch_id)
-    if not recruit_id or not batch_id:
+    if not recruit_id:
         return
-    csvdb.append_recruit_view_if_missing({
+    csvdb.mark_recruit_read({
+        "member_key": _member_key(member_id, member_name),
         "member_id": normalize_text(member_id),
         "member_name": normalize_text(member_name),
         "recruit_id": recruit_id,
-        "batch_id": batch_id,
-        "seen_at": _now(),
-        "last_seen_batch_id": batch_id,
+        "read_at": _now(),
     })
-
 
 def mark_individual_notifications_read(member_id: str, member_name: str) -> int:
     """Mark all unread individual-work notifications for one member as read.

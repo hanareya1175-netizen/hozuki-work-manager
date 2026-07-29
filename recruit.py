@@ -531,9 +531,10 @@ def _open_list(member_name: str, member_id: str) -> None:
         for row in rows:
             row_id = normalize_text(row.get("id"))
             is_new = row_id in new_ids
-            label = (("NEW　" if is_new else "") + _summary(row))
+            if is_new:
+                st.markdown('<div class="hozuki-new-badge">NEW</div>', unsafe_allow_html=True)
             st.button(
-                label,
+                _summary(row),
                 key=f"mobile_detail_{row_id}",
                 use_container_width=True,
                 on_click=_toggle_mobile_recruit_detail,

@@ -5,7 +5,7 @@ import streamlit as st
 APP_NAME = "食用ほおずき作業管理システム"
 APP_SUBTITLE = "HozukiWorks"
 APP_ICON = "assets/app_icon.png"
-APP_VERSION = "Ver2.0.0 Build209"
+APP_VERSION = "Ver2.0.0 Build210"
 
 ROLE_ADMIN = "admin"
 ROLE_MEMBER = "member"
@@ -76,6 +76,13 @@ def apply_mobile_css() -> None:
         }
         h1 {
             line-height: 1.25 !important;
+        }
+        .hozuki-new-badge {
+            color: #8fd400 !important;
+            font-weight: 800;
+            font-size: 1.05rem;
+            line-height: 1;
+            margin: 0 0 0.18rem 0.15rem;
         }
         div[data-testid="stButton"] > button,
         div[data-testid="stFormSubmitButton"] > button {
