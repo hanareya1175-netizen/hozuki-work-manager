@@ -35,7 +35,7 @@ def _members(role: str) -> None:
         key="settings_member_action",
     )
     mode = {"一覧": "list", "新規登録": "create", "編集": "edit"}[action]
-    members_screen(role=role, mode=mode)
+    members_screen(role=role, mode=mode, embedded=True)
 
 
 def _master(kind: str, label: str) -> None:

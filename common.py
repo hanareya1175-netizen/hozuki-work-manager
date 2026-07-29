@@ -5,7 +5,7 @@ import streamlit as st
 APP_NAME = "食用ほおずき作業管理システム"
 APP_SUBTITLE = "HozukiWorks"
 APP_ICON = "assets/app_icon.png"
-APP_VERSION = "Ver2.0.0 Build206"
+APP_VERSION = "Ver2.0.0 Build207"
 
 ROLE_ADMIN = "admin"
 ROLE_MEMBER = "member"
@@ -53,48 +53,25 @@ def apply_mobile_css() -> None:
     st.markdown(
         """
         <style>
-        /* Streamlit Community Cloud の上部バー（Deploy・三点メニュー）を非表示 */
+        /* Streamlit Community Cloud の上部ツールバーを全画面で非表示 */
         header[data-testid="stHeader"],
-        [data-testid="stHeader"],
-        [data-testid="stToolbar"],
-        [data-testid="stDecoration"],
-        [data-testid="stStatusWidget"],
-        [data-testid="stAppDeployButton"],
-        [data-testid="stMainMenu"],
-        .stAppHeader,
-        .stDeployButton,
+        div[data-testid="stToolbar"],
+        div[data-testid="stDecoration"],
+        div[data-testid="stStatusWidget"],
+        div[data-testid="stAppDeployButton"],
+        button[data-testid="stBaseButton-header"],
         #MainMenu,
         footer {
             display: none !important;
             visibility: hidden !important;
             height: 0 !important;
             min-height: 0 !important;
-            max-height: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: hidden !important;
-        }
-
-        /* ヘッダー非表示後に残る上端の空白を除去 */
-        html, body,
-        [data-testid="stAppViewContainer"],
-        [data-testid="stMain"],
-        .stAppViewContainer,
-        .stMain {
-            margin-top: 0 !important;
-            padding-top: 0 !important;
-        }
-        [data-testid="stAppViewContainer"] > .main,
-        [data-testid="stAppViewContainer"] > .stMain,
-        .stAppViewContainer > .main,
-        .stAppViewContainer > .stMain {
-            top: 0 !important;
         }
 
         /* 全画面共通 */
         .block-container {
             max-width: 1050px;
-            padding-top: 0.35rem;
+            padding-top: 0.55rem;
             padding-bottom: 3rem;
         }
         h1 {
@@ -219,30 +196,33 @@ def apply_mobile_css() -> None:
 
             .hozuki-app-header {
                 align-items: center;
-                gap: 0.85rem;
-                margin: 0 0 0.9rem 0;
+                gap: 0.5rem;
+                margin: 0 0 0.72rem 0;
             }
             .hozuki-logo-wrap {
-                flex: 0 0 92px;
-                width: 92px;
+                flex: 0 0 58px;
+                width: 58px;
             }
             .hozuki-app-logo {
-                width: 92px;
+                width: 58px;
             }
             .hozuki-logo-fallback {
-                font-size: 3rem;
+                font-size: 2.2rem;
             }
             .hozuki-main-title {
-                font-size: 1.42rem;
-                line-height: 1.25;
+                font-size: 0.96rem;
+                line-height: 1.15;
+                letter-spacing: -0.045em;
+                white-space: nowrap;
+                overflow-wrap: normal;
             }
             .hozuki-brand-name {
-                margin-top: 0.38rem;
-                font-size: 0.98rem;
+                margin-top: 0.28rem;
+                font-size: 0.83rem;
             }
             .hozuki-version {
-                margin-top: 0.08rem;
-                font-size: 0.86rem;
+                margin-top: 0.04rem;
+                font-size: 0.74rem;
             }
 
             .st-key-desktop_only {

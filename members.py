@@ -10,15 +10,16 @@ from common import (
 def _valid_email(email: str) -> bool:
     return bool(re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email))
 
-def members_screen(*, role: str, mode: str) -> None:
+def members_screen(*, role: str, mode: str, embedded: bool = False) -> None:
     if not require_admin(role): return
-    if mode=='create': _create()
-    elif mode=='list': _list()
-    elif mode=='edit': _edit()
+    if mode=='create': _create(embedded=embedded)
+    elif mode=='list': _list(embedded=embedded)
+    elif mode=='edit': _edit(embedded=embedded)
     else: st.error('会員画面の指定が不正です。')
 
-def _create() -> None:
-    show_header('会員登録')
+def _create(*, embedded: bool = False) -> None:
+    if not embedded:
+        show_header('会員登録')
     with st.form('member_create',clear_on_submit=True):
         name=st.text_input('氏名'); email=st.text_input('メールアドレス'); phone=st.text_input('電話番号')
         role=st.selectbox('権限',[ROLE_MEMBER,ROLE_ADMIN],format_func=lambda x:ROLE_LABELS[x])
@@ -33,8 +34,11 @@ def _create() -> None:
     csvdb.append('members',{'member_id':csvdb.next_id('members','member_id'),'email':email,'password':password,'name':name.strip(),'role':role,'status':MEMBER_STATUS_ACTIVE,'phone':phone.strip()})
     st.success('会員を登録しました。')
 
-def _list() -> None:
-    show_header('会員一覧')
+def _list(*, embedded: bool = False) -> None:
+    if not embedded:
+        show_header('会員一覧')
+    else:
+        st.subheader('会員一覧')
     rows=csvdb.read('members')
     if not rows: st.info('会員は登録されていません。'); return
     table=[]
@@ -52,8 +56,9 @@ def _list() -> None:
                 st.write(f"**権限：** {ROLE_LABELS.get(normalize_role(r.get('role')),r.get('role'))}")
                 st.write(f"**状態：** {normalize_text(r.get('status'))}")
 
-def _edit() -> None:
-    show_header('会員編集')
+def _edit(*, embedded: bool = False) -> None:
+    if not embedded:
+        show_header('会員編集')
     rows=csvdb.read('members')
     if not rows: st.info('会員は登録されていません。'); return
     ids=[normalize_text(x.get('member_id')) for x in rows]

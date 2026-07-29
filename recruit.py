@@ -466,17 +466,17 @@ def _open_list(member_name: str, member_id: str) -> None:
 
     selected_id = st.session_state.get("mobile_recruit_detail_id", "")
     frozen_order = st.session_state.get("mobile_recruit_order", []) if selected_id else []
-    frozen_new_ids = set(st.session_state.get("mobile_recruit_new_ids", [])) if selected_id else set()
 
+    # 並び順だけを固定し、NEW状態は常に最新の既読情報から再計算する。
+    # これにより詳細を開いた募集のNEW表示・件数が直ちに減る。
+    new_ids = current_new_ids
     if frozen_order:
         order_index = {rid: index for index, rid in enumerate(frozen_order)}
         rows.sort(key=lambda x: (
             order_index.get(x.get("id", ""), len(order_index)),
             x.get("date", ""), int(x.get("id") or 0),
         ))
-        new_ids = frozen_new_ids
     else:
-        new_ids = current_new_ids
         rows.sort(key=lambda x: (
             0 if x.get("id", "") in new_ids else 1,
             x.get("date", ""), int(x.get("id") or 0),
@@ -525,16 +525,19 @@ def _open_list(member_name: str, member_id: str) -> None:
             with button_col:
                 if st.button(label, key=f"mobile_detail_{row_id}", use_container_width=True):
                     if selected_id == row_id:
+                        selected_id = ""
                         st.session_state["mobile_recruit_detail_id"] = ""
                         st.session_state.pop("mobile_recruit_order", None)
-                        st.session_state.pop("mobile_recruit_new_ids", None)
                     else:
+                        selected_id = row_id
                         st.session_state["mobile_recruit_detail_id"] = row_id
                         st.session_state["mobile_recruit_order"] = [r.get("id", "") for r in rows]
-                        st.session_state["mobile_recruit_new_ids"] = list(new_ids)
                         if row_id in current_new_ids:
                             mark_recruit_detail_viewed(member_id, member_name, row_id)
-                    st.rerun()
+                            current_new_ids.discard(row_id)
+                            new_ids.discard(row_id)
+                    # ボタン押下による通常の再実行内で状態を更新し、追加のst.rerunを行わない。
+                    # Community Cloud / Neon環境で詳細表示までの待ち時間を短縮する。
 
             if selected_id == row_id:
                 with st.container(border=True):
