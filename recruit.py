@@ -422,15 +422,125 @@ def _admin_list() -> None:
                     st.info("この募集は取消できる状態ではありません。")
 
     with st.container(key="mobile_only"):
-        row_order = [str(r.get("id", "")) for r in rows]
         for row in rows:
-            row_id = str(row.get("id", ""))
-            is_new = row_id in new_ids
-            # Keep NEW inside the same button as its recruit summary.  A separate
-            # badge column can visually slide to the next row when an expanded
-            # detail changes row height on a narrow smartphone screen.
-            label = (("NEW　" if is_new else "") + _summary(row))
+            with st.expander(_summary(row)):
+                _detail(row)
+                action = st.radio("操作", ["表示のみ", "編集", "取消"], horizontal=True, key=f"mobile_action_{row.get('id')}")
+                if action == "編集":
+                    _edit(row.get("id", ""), embedded=True)
+                elif action == "取消":
+                    if row.get("status") in ACTIVE_STATUSES:
+                        if st.button("募集を取消", key=f"mobile_cancel_{row.get('id')}", use_container_width=True):
+                            _cancel(row.get("id", ""))
+                    else:
+                        st.info("この募集は取消できる状態ではありません。")
 
+
+def _accept(recruit_id: str, member_name: str, member_id: str) -> None:
+    rows = csvdb.read("recruit")
+    target = None
+    for item in rows:
+        if item.get("id") == recruit_id and item.get("status") == RECRUIT_STATUS_OPEN:
+            item["status"] = RECRUIT_STATUS_ACCEPTED
+            item["member_id"] = member_id
+            item["member"] = member_name
+            target = item
+            break
+    csvdb.write_all("recruit", rows)
+    if target:
+        st.session_state["accept_message"] = f"{format_date(target.get('date'))}の「{target.get('type', '')}」を引受けました。"
+    st.rerun()
+
+
+def _toggle_mobile_recruit_detail(
+    member_id: str,
+    member_name: str,
+    recruit_id: str,
+    row_order: list[str],
+) -> None:
+    """Open/close one recruit detail and persist its NEW state by recruit ID.
+
+    NEW is never tracked by row position.  The viewed record is written before
+    Streamlit redraws the page, so the same recruit loses NEW immediately and
+    no other recruit can inherit the marker when row heights change.
+    """
+    recruit_id = normalize_text(recruit_id)
+    current_id = normalize_text(st.session_state.get("mobile_recruit_detail_id"))
+
+    if current_id == recruit_id:
+        st.session_state["mobile_recruit_detail_id"] = ""
+        st.session_state.pop("mobile_recruit_order", None)
+        return
+
+    # mark_recruit_detail_viewed is idempotent. Calling it unconditionally is
+    # both safer and faster than recalculating the whole NEW set in callback.
+    mark_recruit_detail_viewed(member_id, member_name, recruit_id)
+    st.session_state["mobile_recruit_detail_id"] = recruit_id
+    st.session_state["mobile_recruit_order"] = [normalize_text(rid) for rid in row_order]
+
+
+def _open_list(member_name: str, member_id: str) -> None:
+    msg = st.session_state.pop("accept_message", "")
+    if msg:
+        st.success(msg)
+
+    rows = [
+        x for x in csvdb.read("recruit")
+        if x.get("status") == RECRUIT_STATUS_OPEN
+        and x.get("date", "") >= date.today().isoformat()
+    ]
+    new_ids = {normalize_text(rid) for rid in new_recruit_ids_for_member(member_id, member_name)}
+
+    selected_id = normalize_text(st.session_state.get("mobile_recruit_detail_id"))
+    frozen_order = st.session_state.get("mobile_recruit_order", []) if selected_id else []
+
+    # Only the display order is frozen while details are open. NEW status is
+    # always recalculated from recruit_views, keyed by the recruit's own ID.
+    if frozen_order:
+        order_index = {normalize_text(rid): index for index, rid in enumerate(frozen_order)}
+        rows.sort(key=lambda x: (
+            order_index.get(normalize_text(x.get("id")), len(order_index)),
+            x.get("date", ""), int(x.get("id") or 0),
+        ))
+    else:
+        rows.sort(key=lambda x: (
+            0 if normalize_text(x.get("id")) in new_ids else 1,
+            x.get("date", ""), int(x.get("id") or 0),
+        ))
+
+    if not rows:
+        st.info("現在募集中の作業はありません。")
+        return
+
+    new_rows = [r for r in rows if normalize_text(r.get("id")) in new_ids]
+    other_rows = [r for r in rows if normalize_text(r.get("id")) not in new_ids]
+    with st.container(key="desktop_only"):
+        if new_rows:
+            st.subheader(f"NEW　新しい募集（{len(new_rows)}件）")
+            st.dataframe(_table_rows(new_rows, include_member=False), use_container_width=True, hide_index=True)
+        if other_rows:
+            if new_rows:
+                st.subheader("その他の募集")
+            st.dataframe(_table_rows(other_rows, include_member=False), use_container_width=True, hide_index=True)
+        rid = st.selectbox(
+            "引受ける作業", [normalize_text(r.get("id")) for r in rows],
+            format_func=lambda x: next(
+                (("NEW　" if normalize_text(r.get("id")) in new_ids else "") + _summary(r))
+                for r in rows if normalize_text(r.get("id")) == normalize_text(x)
+            ), key="desktop_accept_select",
+        )
+        if st.button("選択した作業を引受け", use_container_width=True, key="desktop_accept_button"):
+            _accept(rid, member_name, member_id)
+
+    with st.container(key="mobile_only"):
+        row_order = [normalize_text(r.get("id")) for r in rows]
+        for row in rows:
+            row_id = normalize_text(row.get("id"))
+            is_new = row_id in new_ids
+
+            # NEW and its recruit summary are one widget.  They therefore cannot
+            # become visually detached when another row expands on a smartphone.
+            label = (("NEW　" if is_new else "") + _summary(row))
             st.button(
                 label,
                 key=f"mobile_detail_{row_id}",
@@ -439,7 +549,7 @@ def _admin_list() -> None:
                 args=(member_id, member_name, row_id, row_order),
             )
 
-            if str(st.session_state.get("mobile_recruit_detail_id", "")) == row_id:
+            if selected_id == row_id:
                 with st.container(border=True):
                     _detail(row, show_status=False)
                     if st.button("引受け", key=f"mobile_accept_{row_id}", use_container_width=True):
