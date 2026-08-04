@@ -4,7 +4,6 @@ from datetime import date, datetime
 import json
 import urllib.request
 import streamlit as st
-import streamlit.components.v1 as components
 
 import csvdb
 from common import MEMBER_STATUS_ACTIVE, RECRUIT_STATUS_OPEN, require_admin, show_header, normalize_text
@@ -32,21 +31,50 @@ def create_individual_notification(member_id: str, member_name: str) -> None:
     _append(member_id, member_name, "個別依頼", "個別の作業依頼が1件あります。")
 
 
-def _optional_webhook(message: str) -> tuple[bool, str]:
+def _secret(name: str, default: str = "") -> str:
     try:
-        url = str(st.secrets.get("PUSH_WEBHOOK_URL", "")).strip()
+        return str(st.secrets.get(name, default)).strip()
     except Exception:
-        url = ""
-    if not url:
-        return False, "外部プッシュ通知は未設定です。アプリ内通知のみ登録しました。"
+        return default
+
+
+def _push_broadcast(*, kind: str, message: str) -> tuple[bool, str]:
+    """Send one broadcast request to the separate HozukiWorks Push service.
+
+    The network call occurs only when an administrator explicitly presses a
+    send button, so normal page navigation does not wait on the push service.
+    """
+    base_url = _secret("PUSH_SERVICE_URL").rstrip("/")
+    api_key = _secret("PUSH_API_KEY")
+    app_url = _secret("HOZUKI_APP_URL")
+    if not base_url or not api_key:
+        return False, "プッシュ通知サービスが未設定です。PUSH_SERVICE_URL と PUSH_API_KEY を設定してください。"
+
+    payload = {
+        "kind": kind,
+        "message": normalize_text(message),
+        "target_url": app_url,
+    }
+    req = urllib.request.Request(
+        f"{base_url}/api/broadcast",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "X-API-Key": api_key,
+        },
+        method="POST",
+    )
     try:
-        req = urllib.request.Request(url, data=json.dumps({"message": message}, ensure_ascii=False).encode("utf-8"), headers={"Content-Type":"application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=10) as res:
+        with urllib.request.urlopen(req, timeout=12) as res:
+            body = json.loads(res.read().decode("utf-8") or "{}")
+            sent = int(body.get("sent", 0) or 0)
+            removed = int(body.get("removed", 0) or 0)
             if 200 <= res.status < 300:
-                return True, "スマホ通知の送信要求も完了しました。"
-        return False, "外部プッシュ通知の送信に失敗しました。"
+                suffix = f"（無効端末{removed}件を整理）" if removed else ""
+                return True, f"スマホへ{sent}台送信しました。{suffix}"
+        return False, "プッシュ通知サービスから正常な応答がありませんでした。"
     except Exception as exc:
-        return False, f"外部プッシュ通知の送信に失敗しました：{exc}"
+        return False, f"プッシュ通知の送信に失敗しました：{exc}"
 
 
 def _send_batch() -> tuple[bool, str]:
@@ -58,10 +86,16 @@ def _send_batch() -> tuple[bool, str]:
     if not result["sent"]:
         return False, "未通知の一般募集はありません。"
 
-    # PUSH_WEBHOOK_URL が設定されている場合だけ外部通知を呼ぶ。
-    # 未設定ならネットワーク待ちは発生しない。
-    _, extra = _optional_webhook(str(result["message"]))
-    return True, f"一般募集{result['recruit_count']}件を、まとめて1回通知しました。{extra}"
+    push_ok, push_msg = _push_broadcast(
+        kind="recruit",
+        message="新しい作業募集があります。HozukiWorksで確認してください。",
+    )
+    base = f"一般募集{result['recruit_count']}件を、まとめて1回通知しました。"
+    if push_ok:
+        return True, f"{base} {push_msg}"
+    # The in-app notification batch is already safely recorded even if push is
+    # temporarily unavailable; report that distinction to the administrator.
+    return True, f"{base} ただしスマホ通知は送信できませんでした。{push_msg}"
 
 
 
@@ -162,32 +196,75 @@ def mark_individual_notifications_read(member_id: str, member_name: str) -> int:
 
 
 def notification_screen(*, role: str) -> None:
-    if not require_admin(role): return
+    if not require_admin(role):
+        return
     show_header("通知")
+
     recruits = csvdb.read("recruit")
-    pending = sum(1 for r in recruits if r.get("status") == RECRUIT_STATUS_OPEN and r.get("notification_status", "未通知") == "未通知")
+    pending = sum(
+        1 for r in recruits
+        if r.get("status") == RECRUIT_STATUS_OPEN
+        and r.get("notification_status", "未通知") == "未通知"
+    )
+
+    st.subheader("新規募集あり")
     st.metric("未通知の一般募集", pending)
-    st.caption("一般募集を何件か登録してから、まとめて1回だけ通知します。通知内容は募集件数だけです。")
-    if st.button("まとめて通知する", type="primary", use_container_width=True, disabled=pending == 0):
+    st.caption("一般募集を何件か登録してから、まとめて1回だけスマホへ知らせます。募集の詳細はHozukiWorks本体で確認します。")
+    if st.button(
+        "📣 新規募集ありを通知",
+        type="primary",
+        use_container_width=True,
+        disabled=pending == 0,
+        key="push_general_recruits",
+    ):
         ok, msg = _send_batch()
         (st.success if ok else st.info)(msg)
-        if ok:
-            st.caption("画面上の件数表示は、次に画面を開いたとき更新されます。")
+
     st.divider()
-    st.subheader("通知履歴")
+    st.subheader("管理者からのお知らせ")
+    st.caption("この文章はスマホの通知本文にそのまま表示されます。全員へ一斉配信します。")
+    with st.form("admin_push_message_form", clear_on_submit=True):
+        message = st.text_area(
+            "通知メッセージ",
+            placeholder="例：明日の収穫は雨天のため中止します。",
+            max_chars=180,
+            height=100,
+        )
+        submitted = st.form_submit_button(
+            "📢 お知らせを送信",
+            use_container_width=True,
+        )
+    if submitted:
+        text = normalize_text(message)
+        if not text:
+            st.warning("通知メッセージを入力してください。")
+        else:
+            ok, msg = _push_broadcast(kind="message", message=text)
+            (st.success if ok else st.error)(msg)
+
+    setup_url = _secret("PUSH_SETUP_URL") or _secret("PUSH_SERVICE_URL")
+    if setup_url:
+        st.divider()
+        st.caption("メンバー用の通知設定ページ")
+        st.link_button("🔔 通知設定ページを開く", setup_url, use_container_width=True)
+
+    st.divider()
+    st.subheader("一般募集の通知履歴")
     batches = list(reversed(csvdb.read("notification_batches")))
-    if not batches: st.info("一般募集の通知履歴はありません。")
-    else: st.dataframe([{"通知日時":r.get("created_at"),"募集件数":r.get("recruit_count"),"状態":r.get("status")} for r in batches], hide_index=True, use_container_width=True)
+    if not batches:
+        st.info("一般募集の通知履歴はありません。")
+    else:
+        st.dataframe(
+            [{
+                "通知日時": r.get("created_at"),
+                "募集件数": r.get("recruit_count"),
+                "状態": r.get("status"),
+            } for r in batches],
+            hide_index=True,
+            use_container_width=True,
+        )
 
 
-def _browser_permission_widget() -> None:
-    components.html("""
-    <button id="notify" style="width:100%;min-height:48px;font-size:16px;font-weight:700;border-radius:10px;border:1px solid #aaa;background:white">スマホ通知を有効にする</button>
-    <div id="msg" style="margin-top:6px;font-size:14px"></div>
-    <script>
-    const b=document.getElementById('notify'), m=document.getElementById('msg');
-    b.onclick=async()=>{ if(!('Notification' in window)){m.textContent='このブラウザは通知に対応していません。';return;} const p=await Notification.requestPermission(); m.textContent=p==='granted'?'通知を有効にしました。':'通知が許可されませんでした。'; if(p==='granted') new Notification('HozukiWorks',{body:'通知テストです。'}); };
-    </script>""", height=80)
 
 
 def member_notification_panel(*, member_id: str, member_name: str) -> None:
@@ -213,4 +290,12 @@ def member_notification_panel(*, member_id: str, member_name: str) -> None:
 
     if not new_count and not individual_unread:
         st.caption("新しい通知はありません。")
+
+    setup_url = _secret("PUSH_SETUP_URL") or _secret("PUSH_SERVICE_URL")
+    if setup_url:
+        st.link_button(
+            "🔔 スマホ通知を設定する",
+            setup_url,
+            use_container_width=True,
+        )
 
