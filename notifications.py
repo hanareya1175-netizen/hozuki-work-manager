@@ -65,7 +65,7 @@ def _push_broadcast(*, kind: str, message: str) -> tuple[bool, str]:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=12) as res:
+        with urllib.request.urlopen(req, timeout=65) as res:
             body = json.loads(res.read().decode("utf-8") or "{}")
             sent = int(body.get("sent", 0) or 0)
             removed = int(body.get("removed", 0) or 0)
@@ -86,9 +86,12 @@ def _send_batch() -> tuple[bool, str]:
     if not result["sent"]:
         return False, "未通知の一般募集はありません。"
 
+    # Android/iPhoneで着信確認しやすいよう、Pushの配送経路は
+    # 管理者メッセージと同じ "message" に統一する。
+    # 表示本文の先頭で「新規募集あり」と明示する。
     push_ok, push_msg = _push_broadcast(
-        kind="recruit",
-        message="新しい作業募集があります。HozukiWorksで確認してください。",
+        kind="message",
+        message="【新規募集あり】新しい作業募集があります。HozukiWorksで確認してください。",
     )
     base = f"一般募集{result['recruit_count']}件を、まとめて1回通知しました。"
     if push_ok:
