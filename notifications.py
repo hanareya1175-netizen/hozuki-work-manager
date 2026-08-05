@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import date, datetime
 import json
+import socket
+import time
+import urllib.error
 import urllib.request
 import streamlit as st
 
@@ -38,6 +41,32 @@ def _secret(name: str, default: str = "") -> str:
         return default
 
 
+def _wake_push_service(base_url: str) -> None:
+    """Wake a sleeping Render free service before the actual push request.
+
+    Render free services can take tens of seconds to resume.  A separate health
+    request avoids mixing that cold-start delay with the broadcast request.
+    """
+    health_req = urllib.request.Request(
+        f"{base_url}/health",
+        headers={"User-Agent": "HozukiWorks/Build212"},
+        method="GET",
+    )
+    last_exc: Exception | None = None
+    # First request may time out while Render is waking, but the wake-up itself
+    # continues on the server.  Retry once after a short pause.
+    for timeout in (70, 35):
+        try:
+            with urllib.request.urlopen(health_req, timeout=timeout) as res:
+                if 200 <= res.status < 300:
+                    return
+        except Exception as exc:
+            last_exc = exc
+            time.sleep(2)
+    if last_exc:
+        raise last_exc
+
+
 def _push_broadcast(*, kind: str, message: str) -> tuple[bool, str]:
     """Send one broadcast request to the separate HozukiWorks Push service.
 
@@ -55,26 +84,54 @@ def _push_broadcast(*, kind: str, message: str) -> tuple[bool, str]:
         "message": normalize_text(message),
         "target_url": app_url,
     }
+
+    try:
+        _wake_push_service(base_url)
+    except Exception as exc:
+        return False, f"プッシュ通知サービスの起動に失敗しました：{exc}"
+
     req = urllib.request.Request(
         f"{base_url}/api/broadcast",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
             "X-API-Key": api_key,
+            "User-Agent": "HozukiWorks/Build212",
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=65) as res:
-            body = json.loads(res.read().decode("utf-8") or "{}")
-            sent = int(body.get("sent", 0) or 0)
-            removed = int(body.get("removed", 0) or 0)
-            if 200 <= res.status < 300:
-                suffix = f"（無効端末{removed}件を整理）" if removed else ""
-                return True, f"スマホへ{sent}台送信しました。{suffix}"
-        return False, "プッシュ通知サービスから正常な応答がありませんでした。"
-    except Exception as exc:
-        return False, f"プッシュ通知の送信に失敗しました：{exc}"
+
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(req, timeout=35) as res:
+                body = json.loads(res.read().decode("utf-8") or "{}")
+                sent = int(body.get("sent", 0) or 0)
+                removed = int(body.get("removed", 0) or 0)
+                failed = int(body.get("failed", 0) or 0)
+                if 200 <= res.status < 300:
+                    suffix_parts = []
+                    if removed:
+                        suffix_parts.append(f"無効端末{removed}件を整理")
+                    if failed:
+                        suffix_parts.append(f"送信失敗{failed}件")
+                    suffix = f"（{'、'.join(suffix_parts)}）" if suffix_parts else ""
+                    return True, f"スマホへ{sent}台送信しました。{suffix}"
+            return False, "プッシュ通知サービスから正常な応答がありませんでした。"
+        except (TimeoutError, socket.timeout) as exc:
+            last_exc = exc
+            if attempt == 0:
+                time.sleep(2)
+                continue
+        except urllib.error.URLError as exc:
+            last_exc = exc
+            if attempt == 0:
+                time.sleep(2)
+                continue
+        except Exception as exc:
+            return False, f"プッシュ通知の送信に失敗しました：{exc}"
+
+    return False, f"プッシュ通知の送信に失敗しました：{last_exc}"
 
 
 def _send_batch() -> tuple[bool, str]:
