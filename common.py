@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import date, datetime
 import streamlit as st
 
-APP_NAME = "食用ほおずき作業管理システム"
+APP_NAME = "笹原食用ほおずき作業管理システム"
 APP_SUBTITLE = "HozukiWorks"
 APP_ICON = "assets/app_icon.png"
 APP_VERSION = "Ver2.0.0 Build212"
